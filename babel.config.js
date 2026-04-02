@@ -8,6 +8,7 @@ module.exports = {
         path: '.env',
       },
     ],
+    ['react-native-worklets-core/plugin'],
     'react-native-reanimated/plugin',
   ],
 };

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { usePulseDetector } from '../services/pulseDetector';
-import { Card } from '../components/ui/Card';
 import { Activity, X } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Button } from '../components/ui/Button';
@@ -11,7 +10,7 @@ export const PulseCheckScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const device = useCameraDevice('back');
     const navigation = useNavigation();
-    const { bpm, signalQuality, frameProcessor } = usePulseDetector();
+    const { bpm, signalQuality, confidence, fps, statusText, frameProcessor, reset } = usePulseDetector();
     const [isRecording, setIsRecording] = useState(false);
 
     useEffect(() => {
@@ -28,7 +27,9 @@ export const PulseCheckScreen = () => {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     isActive={true}
-                    // frameProcessor={frameProcessor} // Uncomment when plugin is available
+                    pixelFormat="rgb"
+                    fps={30}
+                    frameProcessor={isRecording ? frameProcessor : undefined}
                     torch={isRecording ? 'on' : 'off'}
                 />
 
@@ -38,8 +39,14 @@ export const PulseCheckScreen = () => {
                         <View className="bg-black/60 p-6 rounded-2xl items-center">
                             <Activity size={48} color="#14b8a6" className="mb-4" />
                             <Text className="text-white text-center font-bold text-lg mb-2">Place finger on camera</Text>
-                            <Text className="text-gray-300 text-center text-sm mb-6">Ensure the flash is covered</Text>
-                            <Button title="Start Measurement" onPress={() => setIsRecording(true)} />
+                            <Text className="text-gray-300 text-center text-sm mb-6">Cover both the lens and the flash, then hold still</Text>
+                            <Button
+                                title="Start Measurement"
+                                onPress={() => {
+                                    reset();
+                                    setIsRecording(true);
+                                }}
+                            />
                         </View>
                     )}
                 </View>
@@ -51,24 +58,24 @@ export const PulseCheckScreen = () => {
                     <View className="items-center mb-6">
                         <Text className="text-primary text-6xl font-bold tracking-tighter">{bpm > 0 ? bpm : '--'}</Text>
                         <Text className="text-gray-500 text-sm uppercase tracking-widest">BPM</Text>
-                        <Text className="text-gray-500 text-xs mt-1">Estimated Heart Rate</Text>
+                        <Text className="text-gray-500 text-xs mt-1">{statusText}</Text>
                     </View>
 
                     <View className="flex-row justify-between mx-4">
                         <View className="items-center">
                             <Text className="text-gray-500 text-xs mb-1">Signal</Text>
                             <View className="flex-row items-center space-x-1">
-                                <View className={`w-2 h-2 rounded-full ${signalQuality === 'Strong' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                                <View className={`w-2 h-2 rounded-full ${signalQuality === 'Strong' ? 'bg-green-500' : signalQuality === 'Good' ? 'bg-teal-400' : 'bg-yellow-500'}`} />
                                 <Text className="text-white font-bold">{signalQuality}</Text>
                             </View>
                         </View>
                         <View className="items-center">
                             <Text className="text-gray-500 text-xs mb-1">Confidence</Text>
-                            <Text className="text-white font-bold">94%</Text>
+                            <Text className="text-white font-bold">{confidence}%</Text>
                         </View>
                         <View className="items-center">
                             <Text className="text-gray-500 text-xs mb-1">FPS</Text>
-                            <Text className="text-white font-bold">30</Text>
+                            <Text className="text-white font-bold">{fps}</Text>
                         </View>
                     </View>
 
@@ -78,6 +85,7 @@ export const PulseCheckScreen = () => {
                         className="mt-6 bg-red-900"
                         onPress={() => {
                             setIsRecording(false);
+                            reset();
                             navigation.goBack();
                         }}
                     />
