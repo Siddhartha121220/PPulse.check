@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { useFrameProcessor, runAtTargetFps } from 'react-native-vision-camera';
 import { runOnJS } from 'react-native-reanimated';
+import { MIN_SAMPLES, PulseSignalProcessor, SAMPLING_RATE } from './pulseSignalProcessor';
 
 /**
  * MIT EVM Inspired Pulse Detector
@@ -13,15 +14,9 @@ import { runOnJS } from 'react-native-reanimated';
  *    of these averages to isolate the pulse.
  */
 
-const BUFFER_SIZE = 120; // ~10 seconds at 12fps
-const MIN_BPM = 48; // 0.8 Hz
-const MAX_BPM = 180; // 3.0 Hz
-const SAMPLING_RATE = 12;
-const MIN_SAMPLES = 24;
 const ROI_SAMPLE_STRIDE = 12;
 
 type SignalQuality = 'Weak' | 'Good' | 'Strong';
-
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export const usePulseDetector = () => {
@@ -45,7 +40,13 @@ export const usePulseDetector = () => {
         setStatusText('Cover the camera and flash fully');
     }, []);
 
-    const updateFromSample = useCallback((sample: number, averageRed: number, averageGreen: number, coveredPixelsRatio: number) => {
+    const updateFromSample = useCallback((
+        sample: number,
+        timestampMs: number,
+        averageRed: number,
+        averageGreen: number,
+        coveredPixelsRatio: number,
+    ) => {
         const redDominance = averageRed / Math.max(averageGreen, 1);
         const fingerCovered = averageRed > 120 && redDominance > 1.15 && coveredPixelsRatio > 0.55;
 
@@ -64,13 +65,12 @@ export const usePulseDetector = () => {
         }
 
         missCountRef.current = 0;
-        const now = Date.now();
-        sampleTimesRef.current.push(now);
+        sampleTimesRef.current.push(timestampMs);
         if (sampleTimesRef.current.length > SAMPLING_RATE * 3) {
             sampleTimesRef.current.shift();
         }
 
-        processorRef.current.addSample(sample);
+        processorRef.current.addSample(sample, timestampMs);
         const currentFps = calculateFps(sampleTimesRef.current);
         const stats = processorRef.current.getSignalStats();
         const nextBpm = processorRef.current.getBPM();
@@ -146,101 +146,18 @@ export const usePulseDetector = () => {
             const coveredPixelsRatio = coveredPixels / sampleCount;
             const normalizedSample = averageGreen / Math.max(averageRed, 1);
 
-            runOnJS(updateFromSample)(normalizedSample, averageRed, averageGreen, coveredPixelsRatio);
+            runOnJS(updateFromSample)(
+                normalizedSample,
+                Date.now(),
+                averageRed,
+                averageGreen,
+                coveredPixelsRatio,
+            );
         });
     }, [updateFromSample]);
 
     return { bpm, signalQuality, confidence, fps, statusText, frameProcessor, reset };
 };
-
-/**
- * Real-time Signal Processing Class (Logic extracted for readability)
- */
-export class PulseSignalProcessor {
-    private buffer: number[] = [];
-
-    addSample(value: number) {
-        this.buffer.push(value);
-        if (this.buffer.length > BUFFER_SIZE) this.buffer.shift();
-    }
-
-    reset() {
-        this.buffer = [];
-    }
-
-    getSignalStats() {
-        if (this.buffer.length === 0) {
-            return { sampleCount: 0, amplitudeScore: 0 };
-        }
-
-        const mean = this.buffer.reduce((a, b) => a + b, 0) / this.buffer.length;
-        const variance =
-            this.buffer.reduce((sum, value) => sum + (value - mean) ** 2, 0) / this.buffer.length;
-        const stdDev = Math.sqrt(variance);
-        const amplitudeScore = clamp(stdDev * 180, 0, 1);
-
-        return {
-            sampleCount: this.buffer.length,
-            amplitudeScore,
-        };
-    }
-
-    getBPM(): number {
-        if (this.buffer.length < MIN_SAMPLES) return 0;
-
-        const mean = this.buffer.reduce((a, b) => a + b, 0) / this.buffer.length;
-        const acSignal = this.buffer.map(v => v - mean);
-        const smoothed = acSignal.map((_, index, samples) => {
-            const start = Math.max(0, index - 2);
-            const end = Math.min(samples.length - 1, index + 2);
-            let total = 0;
-            let count = 0;
-
-            for (let i = start; i <= end; i++) {
-                total += samples[i];
-                count += 1;
-            }
-
-            return total / count;
-        });
-
-        const variance = smoothed.reduce((sum, value) => sum + value * value, 0) / smoothed.length;
-        const threshold = Math.sqrt(variance) * 0.45;
-        const minPeakDistance = Math.round((SAMPLING_RATE * 60) / MAX_BPM);
-        const peakIndexes: number[] = [];
-
-        for (let i = 1; i < smoothed.length - 1; i++) {
-            const isPeak = smoothed[i] > smoothed[i - 1] &&
-                smoothed[i] >= smoothed[i + 1] &&
-                smoothed[i] > threshold;
-
-            if (!isPeak) {
-                continue;
-            }
-
-            const lastPeak = peakIndexes[peakIndexes.length - 1];
-            if (lastPeak != null && i - lastPeak < minPeakDistance) {
-                continue;
-            }
-
-            peakIndexes.push(i);
-        }
-
-        if (peakIndexes.length < 2) return 0;
-
-        const intervals: number[] = [];
-        for (let i = 1; i < peakIndexes.length; i++) {
-            intervals.push(peakIndexes[i] - peakIndexes[i - 1]);
-        }
-
-        const averageInterval = intervals.reduce((sum, value) => sum + value, 0) / intervals.length;
-        const calculatedBpm = (SAMPLING_RATE * 60) / averageInterval;
-
-        if (calculatedBpm < MIN_BPM || calculatedBpm > MAX_BPM) return 0;
-        return calculatedBpm;
-    }
-}
-
 const calculateFps = (timestamps: number[]) => {
     if (timestamps.length < 2) {
         return 0;

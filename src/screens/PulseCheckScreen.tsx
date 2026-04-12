@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 import { usePulseDetector } from '../services/pulseDetector';
 import { Activity, X } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -9,15 +9,19 @@ import { Button } from '../components/ui/Button';
 export const PulseCheckScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const device = useCameraDevice('back');
+    const format = useCameraFormat(device, [
+        { videoResolution: { width: 1280, height: 720 } },
+        { fps: 30 },
+    ]);
     const navigation = useNavigation();
     const { bpm, signalQuality, confidence, fps, statusText, frameProcessor, reset } = usePulseDetector();
     const [isRecording, setIsRecording] = useState(false);
 
     useEffect(() => {
         if (!hasPermission) requestPermission();
-    }, [hasPermission]);
+    }, [hasPermission, requestPermission]);
 
-    if (!device || !hasPermission) return <View className="flex-1 bg-black" />;
+    if (!device || !hasPermission || !format) return <View className="flex-1 bg-black" />;
 
     return (
         <View className="flex-1 bg-black">
@@ -26,6 +30,7 @@ export const PulseCheckScreen = () => {
                 <Camera
                     style={StyleSheet.absoluteFill}
                     device={device}
+                    format={format}
                     isActive={true}
                     pixelFormat="rgb"
                     fps={30}
