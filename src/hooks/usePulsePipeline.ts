@@ -6,11 +6,14 @@ import { useSharedValue } from 'react-native-reanimated';
 import { PipelineController, PipelineState } from '../core/PipelineController';
 import { AlgorithmManager } from '../core/AlgorithmManager';
 import { ConfigurationManager } from '../core/ConfigurationManager';
-import { FaceDetector } from '../acquisition/FaceDetector';
-import { FaceTracker } from '../acquisition/FaceTracker';
-import { ROIManager } from '../acquisition/ROIManager';
-import { SkinSegmenter } from '../acquisition/SkinSegmenter';
 import type { ROIPatch } from '../types/pipeline';
+
+// Import pure functions and state interfaces for worklet
+import { createFaceDetectorState, detectFace, FaceDetectorState } from '../acquisition/FaceDetector';
+import { createFaceTrackerState, updateFaceTracker, predictFaceTracker, resetFaceTrackerState, FaceTrackerState } from '../acquisition/FaceTracker';
+import { extractROIs } from '../acquisition/ROIManager';
+import { segmentSkin } from '../acquisition/SkinSegmenter';
+import { createEVMState, processEVMFrame, resetEVMState, EVMState } from '../processing/enhancement/EulerianMagnification';
 
 // Import plugins to register
 import { NoEnhancement } from '../processing/enhancement/NoEnhancement';
@@ -18,7 +21,7 @@ import { EulerianMagnification } from '../processing/enhancement/EulerianMagnifi
 import { POSExtractor } from '../processing/extraction/POSExtractor';
 import { FFTAnalyzer } from '../processing/frequency/FFTAnalyzer';
 
-// Singleton managers (could also be provided via Context, but for now singleton is fine)
+// Singleton managers
 const configManager = new ConfigurationManager();
 const algorithmManager = new AlgorithmManager();
 
@@ -27,7 +30,6 @@ algorithmManager.registerEnhancement(new NoEnhancement());
 algorithmManager.registerEnhancement(new EulerianMagnification());
 algorithmManager.registerExtraction(new POSExtractor());
 algorithmManager.registerProcessing(new FFTAnalyzer());
-// EVM will be registered here in Milestone 5
 
 export function usePulsePipeline() {
   const pipelineRef = useRef<PipelineController | null>(null);
@@ -37,13 +39,11 @@ export function usePulsePipeline() {
   const modeShared = useSharedValue<'standard' | 'enhanced' | 'visualization'>('standard');
   const resetTrigger = useSharedValue<number>(0);
 
-  // Worklet context to store class instances on the worklet thread to preserve prototype methods
+  // Worklet context to store state objects on the worklet thread
   const workletContext = useRef({
-    detector: null as FaceDetector | null,
-    tracker: null as FaceTracker | null,
-    roiManager: null as ROIManager | null,
-    skinSegmenter: null as SkinSegmenter | null,
-    evmEnhancer: null as EulerianMagnification | null,
+    detectorState: null as FaceDetectorState | null,
+    trackerState: null as FaceTrackerState | null,
+    evmState: null as EVMState | null,
     lastResetTrigger: 0,
   }).current;
 
@@ -73,22 +73,15 @@ export function usePulsePipeline() {
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
     
-    // Instantiate components inside the worklet thread so they have correct context/prototypes
-    if (workletContext.detector === null) {
-      workletContext.detector = new FaceDetector(200);
+    // Initialize pure state objects on the worklet thread
+    if (workletContext.detectorState === null) {
+      workletContext.detectorState = createFaceDetectorState(200);
     }
-    if (workletContext.tracker === null) {
-      workletContext.tracker = new FaceTracker();
+    if (workletContext.trackerState === null) {
+      workletContext.trackerState = createFaceTrackerState();
     }
-    if (workletContext.roiManager === null) {
-      workletContext.roiManager = new ROIManager();
-    }
-    if (workletContext.skinSegmenter === null) {
-      workletContext.skinSegmenter = new SkinSegmenter();
-    }
-    if (workletContext.evmEnhancer === null) {
-      workletContext.evmEnhancer = new EulerianMagnification();
-      workletContext.evmEnhancer.initialize({
+    if (workletContext.evmState === null) {
+      workletContext.evmState = createEVMState({
         pyramidLevels: 4,
         amplificationFactor: 30,
         frequencyLow: 0.7,
@@ -102,12 +95,12 @@ export function usePulsePipeline() {
     // Synchronize resets from the JS thread
     if (resetTrigger.value > workletContext.lastResetTrigger) {
       workletContext.lastResetTrigger = resetTrigger.value;
-      workletContext.tracker.reset();
-      workletContext.evmEnhancer.reset();
+      resetFaceTrackerState(workletContext.trackerState);
+      resetEVMState(workletContext.evmState);
     }
     
     // 1. Detect Face
-    const detection = workletContext.detector.detect(frame, performance.now(), detectFaces);
+    const detection = detectFace(frame, performance.now(), detectFaces, workletContext.detectorState);
     
     let face = null;
     let patches: ROIPatch[] = [];
@@ -116,14 +109,14 @@ export function usePulsePipeline() {
 
     if (detection) {
       // 2. Track Face
-      face = workletContext.tracker.update(detection);
+      face = updateFaceTracker(detection, workletContext.trackerState);
     } else {
-      face = workletContext.tracker.predict();
+      face = predictFaceTracker(workletContext.trackerState);
     }
 
     if (face) {
       // 3. Extract ROIs
-      patches = workletContext.roiManager.extractROIs(frame, face);
+      patches = extractROIs(frame, face);
       
       // 4. Segment Skin and optionally Enhance
       let totalSkinRatio = 0;
@@ -132,11 +125,11 @@ export function usePulsePipeline() {
 
       for (let i = 0; i < patches.length; i++) {
         // Segment
-        const { patch, coveredRatio } = workletContext.skinSegmenter.segment(patches[i]);
+        const { patch, coveredRatio } = segmentSkin(patches[i]);
         
         // Enhance (EVM) if not in Standard Mode
         if (modeShared.value !== 'standard') {
-           patch.pixels = workletContext.evmEnhancer.processFrame(patch.pixels, patch.width, patch.height);
+           patch.pixels = processEVMFrame(workletContext.evmState, patch.pixels, patch.width, patch.height);
         }
         
         patches[i] = patch;

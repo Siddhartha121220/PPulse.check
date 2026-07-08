@@ -15,10 +15,6 @@ import type { WindowFunction } from '../types/pipeline';
 // Window Functions
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * Generate a window function of given length.
- * The result is cached internally for repeated calls with the same parameters.
- */
 const windowCache = new Map<string, Float32Array>();
 
 export function getWindow(type: WindowFunction, length: number): Float32Array {
@@ -61,10 +57,6 @@ export function getWindow(type: WindowFunction, length: number): Float32Array {
   return w;
 }
 
-/**
- * Apply a window function to a signal in place.
- * Returns the same array for chaining.
- */
 export function applyWindow(
   signal: Float32Array,
   windowType: WindowFunction,
@@ -80,17 +72,6 @@ export function applyWindow(
 // IIR Filters
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * 2nd-order Butterworth bandpass filter coefficients.
- *
- * Used by EVM for temporal filtering at each pyramid level.
- * Designed using bilinear transform of the analog prototype.
- *
- * @param lowCutHz  - Lower cutoff frequency (Hz)
- * @param highCutHz - Upper cutoff frequency (Hz)
- * @param sampleRate - Sample rate (Hz)
- * @returns Filter coefficients { b: [b0,b1,b2], a: [1, a1, a2] }
- */
 export interface BiquadCoefficients {
   b: [number, number, number]; // feedforward: b0, b1, b2
   a: [number, number, number]; // feedback: 1, a1, a2
@@ -118,63 +99,57 @@ export function butterworthBandpass(
   const a1 = -2 * Math.cos(w0);
   const a2 = 1 - alpha;
 
-  // Normalize
   return {
     b: [b0 / a0, b1 / a0, b2 / a0],
     a: [1, a1 / a0, a2 / a0],
   };
 }
 
-/**
- * Stateful biquad (2nd-order IIR) filter.
- *
- * Implements Direct Form II transposed structure.
- * Create one instance per signal channel per pyramid level.
- */
-export class BiquadFilter {
-  private b0: number;
-  private b1: number;
-  private b2: number;
-  private a1: number;
-  private a2: number;
-  private z1 = 0;
-  private z2 = 0;
-
-  constructor(coeffs: BiquadCoefficients) {
-    this.b0 = coeffs.b[0];
-    this.b1 = coeffs.b[1];
-    this.b2 = coeffs.b[2];
-    this.a1 = coeffs.a[1];
-    this.a2 = coeffs.a[2];
-  }
-
-  /** Process a single sample. Returns filtered value. */
-  process(input: number): number {
-    const output = this.b0 * input + this.z1;
-    this.z1 = this.b1 * input - this.a1 * output + this.z2;
-    this.z2 = this.b2 * input - this.a2 * output;
-    return output;
-  }
-
-  /** Reset filter state (e.g., on session restart). */
-  reset(): void {
-    this.z1 = 0;
-    this.z2 = 0;
-  }
+export interface BiquadFilterState {
+  b0: number;
+  b1: number;
+  b2: number;
+  a1: number;
+  a2: number;
+  z1: number;
+  z2: number;
 }
 
-/**
- * Apply a biquad filter to an entire Float32Array.
- * Returns a new Float32Array with filtered values.
- */
+export function createBiquadFilterState(coeffs: BiquadCoefficients): BiquadFilterState {
+  'worklet';
+  return {
+    b0: coeffs.b[0],
+    b1: coeffs.b[1],
+    b2: coeffs.b[2],
+    a1: coeffs.a[1],
+    a2: coeffs.a[2],
+    z1: 0,
+    z2: 0,
+  };
+}
+
+export function processBiquadFilter(state: BiquadFilterState, input: number): number {
+  'worklet';
+  const output = state.b0 * input + state.z1;
+  state.z1 = state.b1 * input - state.a1 * output + state.z2;
+  state.z2 = state.b2 * input - state.a2 * output;
+  return output;
+}
+
+export function resetBiquadFilter(state: BiquadFilterState): void {
+  'worklet';
+  state.z1 = 0;
+  state.z2 = 0;
+}
+
 export function applyBiquad(
   signal: Float32Array,
   coeffs: BiquadCoefficients,
 ): Float32Array {
-  const filter = new BiquadFilter(coeffs);
+  const state = createBiquadFilterState(coeffs);
   const out = new Float32Array(signal.length);
   for (let i = 0; i < signal.length; i++) {
-    out[i] = filter.process(signal[i]);
+    out[i] = processBiquadFilter(state, signal[i]);
   }
   return out;
 }
@@ -183,10 +158,6 @@ export function applyBiquad(
 // Simple 1st-order IIR filters
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * 1st-order IIR high-pass filter applied to an array.
- * Cutoff specified in Hz.
- */
 export function highPassFilter(
   samples: Float32Array,
   sampleRate: number,
@@ -208,10 +179,6 @@ export function highPassFilter(
   return out;
 }
 
-/**
- * 1st-order IIR low-pass filter applied to an array.
- * Cutoff specified in Hz.
- */
 export function lowPassFilter(
   samples: Float32Array,
   sampleRate: number,
