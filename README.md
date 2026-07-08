@@ -1,96 +1,64 @@
-# PPulse Check (HeartSense)
+# PPulse Research Platform
 
-A React Native mobile application that measures heart rate in real-time using the device camera. The app leverages photoplethysmography (PPG) principles inspired by MIT's Eulerian Video Magnification to detect subtle color changes in the skin caused by blood flow.
+A high-performance, open-source React Native application for contactless physiological monitoring (rPPG). 
 
-## Features
+This project implements state-of-the-art Eulerian Video Magnification (EVM) alongside Plane-Orthogonal-to-Skin (POS) signal extraction to estimate heart rate using only a smartphone camera.
 
-- **Camera-Based Pulse Detection** -- Uses the rear camera and flashlight to measure heart rate by analyzing the green channel of the video feed in real-time.
-- **Signal Processing Pipeline** -- Implements bandpass filtering (0.8 Hz - 3.0 Hz) with peak detection to isolate the cardiac pulse from raw pixel data.
-- **Dashboard** -- Displays average BPM, last check time, and a scrollable history of recent sessions with confidence scores.
-- **Session History** -- Browse past readings with timestamps and BPM values, backed by Supabase.
-- **Dark Theme UI** -- Teal-accented dark interface styled with NativeWind (TailwindCSS for React Native).
+## Research Objectives
+This platform is designed to evaluate the following research hypothesis:
+> **H₁**: Eulerian Video Magnification pre-processing of facial skin ROI patches improves the accuracy of POS-based smartphone rPPG heart rate estimation compared to POS alone.
 
-## Tech Stack
+## Architecture
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | React Native 0.83 |
-| Language | TypeScript |
-| Navigation | React Navigation 7 (Native Stack) |
-| Styling | NativeWind 4 + TailwindCSS 3 |
-| Camera | React Native Vision Camera 4 |
-| Animations | React Native Reanimated 4 |
-| Backend | Supabase (Auth, Database) |
-| Icons | Lucide React Native |
+The system is built on a high-speed, zero-bridge-crossing architecture:
+- **Acquisition**: `react-native-vision-camera` + `react-native-worklets-core`
+- **Face Tracking**: Google ML Kit via `react-native-vision-camera-face-detector`
+- **Processing Engine**: A purely synchronous, `Float32Array`-based pipeline running directly on the JavaScript UI thread to maintain a strict 30 FPS budget.
 
-## Project Structure
+### Pipeline Stages
+1. **ROI Extraction**: Face bounding boxes are tracked with an Exponential Moving Average (EMA). Forehead and cheek ROIs are isolated and filtered for skin-tone using YCrCb/HSV thresholds.
+2. **Enhancement (EVM)**: Subtle color variations in the skin are amplified using a 4-level Gaussian spatial pyramid and a temporal Butterworth bandpass filter (0.7 - 3.0 Hz).
+3. **Signal Extraction (POS)**: The amplified RGB signals are projected orthogonally to the skin-tone plane to remove specular reflection and motion artifacts.
+4. **Frequency Analysis**: A Radix-2 Cooley-Tukey FFT calculates the Power Spectral Density (PSD) to locate the dominant frequency.
+5. **Quality Estimation**: Signal-to-Noise Ratio (SNR) and time-domain heuristics (Zero-Crossing Rate, Skewness) define a Confidence Score (0-100%).
 
+## Setup and Installation
+
+### 1. Database Configuration
+This project uses Supabase to securely store reading metadata for offline analysis.
+Run the provided SQL migrations in your Supabase SQL Editor:
+- `supabase/readings.sql`
+- `supabase/migration_002_pipeline_metadata.sql`
+
+Configure your environment variables in `.env`:
 ```
-src/
-  components/ui/    -- Reusable UI components (Button, Card)
-  screens/          -- DashboardScreen, PulseCheckScreen, HistoryScreen
-  services/         -- pulseDetector.ts (signal processing logic)
-  types/            -- TypeScript type definitions
-  lib/              -- Supabase client configuration
+EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-## Prerequisites
+### 2. Install Dependencies
+```bash
+npm install
+```
 
-- Node.js >= 20
-- React Native development environment ([setup guide](https://reactnative.dev/docs/set-up-your-environment))
-- Android Studio with NDK 27+ (for Android builds)
-- Xcode 15+ (for iOS builds, macOS only)
-- A Supabase project with the required tables
+### 3. Running the App
+**Note**: rPPG algorithms require a physical camera. Emulators will not work.
 
-## Getting Started
+**Android:**
+```bash
+npm run android
+```
 
-1. **Clone the repository**
+**iOS:**
+```bash
+cd ios && pod install && cd ..
+npm run ios
+```
 
-   ```sh
-   git clone https://github.com/<your-username>/PPulse.check.git
-   cd PPulse.check
-   ```
-
-2. **Install dependencies**
-
-   ```sh
-   npm install
-   ```
-
-3. **Configure environment variables**
-
-   ```sh
-   cp .env.example .env
-   ```
-
-   Fill in your Supabase project URL and anon key in the `.env` file.
-
-4. **Start Metro bundler**
-
-   ```sh
-   npm start
-   ```
-
-5. **Run the app**
-
-   ```sh
-   # Android
-   npm run android
-
-   # iOS (macOS only)
-   cd ios && bundle exec pod install && cd ..
-   npm run ios
-   ```
-
-## How It Works
-
-1. The user places their fingertip over the rear camera lens.
-2. The camera captures video frames at ~30 FPS with the flashlight on.
-3. Each frame's green channel is spatially averaged over a center ROI (Region of Interest).
-4. The time series of averages is detrended and passed through a bandpass filter.
-5. Peak detection counts cardiac cycles, and BPM is calculated from the peak frequency.
-6. Results are displayed in real-time and saved to Supabase for history tracking.
+## Application Modes
+- **Standard Mode**: Runs the POS and FFT pipeline. Robust for standard heart rate tracking.
+- **Enhanced Mode**: Pre-processes the camera feed with EVM before running POS. Designed for research comparisons.
+- **Visualization Mode**: Applies EVM directly to the camera preview. Visually amplifies the user's pulse in real time.
 
 ## License
-
 MIT

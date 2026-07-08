@@ -138,11 +138,21 @@ export function usePulsePipeline() {
     return pipelineRef.current ? pipelineRef.current.stop() : null;
   }, []);
 
+  const getActiveAlgorithms = useCallback(() => {
+    return pipelineRef.current ? pipelineRef.current.getActiveAlgorithms() : { enhancement: 'none', extraction: 'pos', processing: 'fft' };
+  }, []);
+
+  const getSessionDurationSec = useCallback(() => {
+    return pipelineRef.current ? pipelineRef.current.getSessionDurationSec() : 0;
+  }, []);
+
   return {
     state,
     frameProcessor,
     start,
     stop,
+    getActiveAlgorithms,
+    getSessionDurationSec,
     configManager,
   };
 }

@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Alert, View, Text, StyleSheet } from 'react-native';
 import { Camera, useCameraPermission } from 'react-native-vision-camera';
 import { useCameraManager } from '../acquisition/CameraManager';
 import { usePulsePipeline } from '../hooks/usePulsePipeline';
-import { DEFAULT_USER_ID, saveReading } from '../services/readingsService';
+import { MeasurementRecorder } from '../services/MeasurementRecorder';
 import { Activity, X } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Button } from '../components/ui/Button';
@@ -14,8 +14,9 @@ import { SignalChart } from '../components/ui/SignalChart';
 export const PulseCheckScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const navigation = useNavigation();
-    const { state, frameProcessor, start, stop, configManager } = usePulsePipeline();
+    const { state, frameProcessor, start, stop, getActiveAlgorithms, getSessionDurationSec, configManager } = usePulsePipeline();
     const [isSaving, setIsSaving] = useState(false);
+    const recorder = useRef(new MeasurementRecorder()).current;
     
     // Default to front camera for face mode
     const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('front');
@@ -31,23 +32,28 @@ export const PulseCheckScreen = () => {
 
     const { device, format } = useCameraManager(cameraPosition, 30);
 
+    const handleStart = useCallback(() => {
+        recorder.startSession();
+        start();
+    }, [start, recorder]);
+
     const handleStop = useCallback(async () => {
+        const activeAlgos = getActiveAlgorithms();
+        const duration = getSessionDurationSec();
         const result = stop();
 
         if (result && result.bpm > 0) {
             setIsSaving(true);
             try {
-                await saveReading({
-                    user_id: DEFAULT_USER_ID,
-                    bpm: result.bpm,
-                    confidence: result.confidence * 100, // convert 0-1 to 0-100
-                    signal_quality: result.signalQuality,
-                    mode: state?.mode,
-                    enhancement_algo: configManager.buildPipelineConfig().enhancement.amplificationFactor > 0 ? 'evm' : 'none',
-                    extraction_algo: 'pos',
-                    processing_algo: 'fft',
-                    processing_fps: state?.fps,
-                });
+                await recorder.record(
+                    result,
+                    state?.mode || 'standard',
+                    activeAlgos,
+                    state?.fps || 0,
+                    duration,
+                    null, // lighting estimate
+                    null  // motion estimate
+                );
             } catch (e) {
                 Alert.alert(
                     'Could not save reading',
@@ -59,7 +65,7 @@ export const PulseCheckScreen = () => {
         }
 
         navigation.goBack();
-    }, [stop, state, navigation, configManager]);
+    }, [stop, state, navigation, getActiveAlgorithms, getSessionDurationSec, recorder]);
 
     if (!device || !hasPermission || !format) return <View className="flex-1 bg-black" />;
 
@@ -100,7 +106,7 @@ export const PulseCheckScreen = () => {
                             <Text className="text-gray-300 text-center text-sm mb-6">Ensure your face is well-lit and hold still</Text>
                             <Button
                                 title="Start Measurement"
-                                onPress={start}
+                                onPress={handleStart}
                             />
                         </View>
                     )}
