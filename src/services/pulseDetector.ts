@@ -1,20 +1,20 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useMemo } from 'react';
 import { useFrameProcessor, runAtTargetFps } from 'react-native-vision-camera';
-import { runOnJS } from 'react-native-reanimated';
+import { Worklets } from 'react-native-worklets-core';
 import { MIN_SAMPLES, PulseSignalProcessor, SAMPLING_RATE } from './pulseSignalProcessor';
 
 /**
  * MIT EVM Inspired Pulse Detector
- * 
- * 1. Spatial Decomposition: We take the average of the Green channel (strongest PPG signal)
- *    in the center ROI. This is equivalent to the lowest level of a Laplacian pyramid
- *    (the "DC" component of the spatial frequencies).
- * 
- * 2. Temporal Filtering: We apply a bandpass filter (0.8Hz - 3.0Hz) to the time series 
- *    of these averages to isolate the pulse.
+ *
+ * 1. Spatial Decomposition: Average the dominant (red-like) channel in the center ROI.
+ * 2. Temporal Filtering: Bandpass filter (0.8–3.0 Hz) to isolate the pulse frequency.
+ *
+ * NOTE: Android cameras with pixelFormat="rgb" sometimes deliver BGR byte order.
+ * We use max(byte0, byte2) as "red" — a finger always makes red the brightest
+ * channel, so this works correctly for both RGB and BGR orderings.
  */
 
-const ROI_SAMPLE_STRIDE = 12;
+const ROI_SAMPLE_STRIDE = 8;
 
 type SignalQuality = 'Weak' | 'Good' | 'Strong';
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -47,12 +47,11 @@ export const usePulseDetector = () => {
         averageGreen: number,
         coveredPixelsRatio: number,
     ) => {
-        const redDominance = averageRed / Math.max(averageGreen, 1);
-        const fingerCovered = averageRed > 120 && redDominance > 1.15 && coveredPixelsRatio > 0.55;
+        const fingerCovered = averageRed > 80 && coveredPixelsRatio > 0.3;
 
         if (!fingerCovered) {
             missCountRef.current += 1;
-            if (missCountRef.current >= 3) {
+            if (missCountRef.current >= 5) {
                 processorRef.current.reset();
                 sampleTimesRef.current = [];
                 setBpm(0);
@@ -74,9 +73,9 @@ export const usePulseDetector = () => {
         const currentFps = calculateFps(sampleTimesRef.current);
         const stats = processorRef.current.getSignalStats();
         const nextBpm = processorRef.current.getBPM();
-        const qualityScore = clamp(stats.amplitudeScore * 0.7 + coveredPixelsRatio * 0.3, 0, 1);
+        const qualityScore = clamp(stats.amplitudeScore * 0.6 + coveredPixelsRatio * 0.4, 0, 1);
         const nextQuality: SignalQuality =
-            qualityScore > 0.72 ? 'Strong' : qualityScore > 0.45 ? 'Good' : 'Weak';
+            qualityScore > 0.6 ? 'Strong' : qualityScore > 0.35 ? 'Good' : 'Weak';
 
         setFps(currentFps);
         setConfidence(Math.round(qualityScore * 100));
@@ -84,7 +83,7 @@ export const usePulseDetector = () => {
 
         if (stats.sampleCount < MIN_SAMPLES) {
             setBpm(0);
-            setStatusText('Hold steady for 3-5 seconds');
+            setStatusText('Hold steady for 2-4 seconds');
             return;
         }
 
@@ -97,19 +96,17 @@ export const usePulseDetector = () => {
         }
     }, []);
 
+    const pushSampleToJs = useMemo(() => Worklets.createRunOnJS(updateFromSample), [updateFromSample]);
+
     const frameProcessor = useFrameProcessor((frame) => {
         'worklet';
 
-        runAtTargetFps(SAMPLING_RATE, () => {
+        runAtTargetFps(30, () => {
             'worklet';
-
-            if (frame.pixelFormat !== 'rgb') {
-                return;
-            }
 
             const buffer = frame.toArrayBuffer();
             const data = new Uint8Array(buffer);
-            const bytesPerPixel = 4;
+            const bytesPerPixel = Math.max(3, Math.round(frame.bytesPerRow / Math.max(frame.width, 1)));
             const startX = Math.floor(frame.width * 0.3);
             const endX = Math.floor(frame.width * 0.7);
             const startY = Math.floor(frame.height * 0.3);
@@ -124,14 +121,20 @@ export const usePulseDetector = () => {
                 const rowOffset = y * frame.bytesPerRow;
                 for (let x = startX; x < endX; x += ROI_SAMPLE_STRIDE) {
                     const index = rowOffset + x * bytesPerPixel;
-                    const red = data[index];
-                    const green = data[index + 1];
+                    const byte0 = data[index] ?? 0;
+                    const byte1 = data[index + 1] ?? 0;  // green in both RGB and BGR
+                    const byte2 = data[index + 2] ?? 0;
+
+                    // max(byte0, byte2) is always the red channel —
+                    // whether camera delivers RGB (byte0=R) or BGR (byte2=R)
+                    const red = byte0 > byte2 ? byte0 : byte2;
+                    const green = byte1;
 
                     redSum += red;
                     greenSum += green;
                     sampleCount += 1;
 
-                    if (red > 120 && red > green) {
+                    if (red > 80 && red > green) {
                         coveredPixels += 1;
                     }
                 }
@@ -144,17 +147,19 @@ export const usePulseDetector = () => {
             const averageRed = redSum / sampleCount;
             const averageGreen = greenSum / sampleCount;
             const coveredPixelsRatio = coveredPixels / sampleCount;
-            const normalizedSample = averageGreen / Math.max(averageRed, 1);
+            const timestampMs = frame.timestamp != null
+                ? Math.round(frame.timestamp / 1_000_000)
+                : Date.now();
 
-            runOnJS(updateFromSample)(
-                normalizedSample,
-                Date.now(),
+            pushSampleToJs(
+                averageGreen,
+                timestampMs,
                 averageRed,
                 averageGreen,
                 coveredPixelsRatio,
             );
         });
-    }, [updateFromSample]);
+    }, [pushSampleToJs]);
 
     return { bpm, signalQuality, confidence, fps, statusText, frameProcessor, reset };
 };

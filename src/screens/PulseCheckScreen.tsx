@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, View, Text, StyleSheet } from 'react-native';
 import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
 import { usePulseDetector } from '../services/pulseDetector';
+import { DEFAULT_USER_ID, saveReading } from '../services/readingsService';
 import { Activity, X } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Button } from '../components/ui/Button';
@@ -16,16 +17,42 @@ export const PulseCheckScreen = () => {
     const navigation = useNavigation();
     const { bpm, signalQuality, confidence, fps, statusText, frameProcessor, reset } = usePulseDetector();
     const [isRecording, setIsRecording] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if (!hasPermission) requestPermission();
     }, [hasPermission, requestPermission]);
 
+    const handleStop = useCallback(async () => {
+        setIsRecording(false);
+
+        if (bpm > 0) {
+            setIsSaving(true);
+            try {
+                await saveReading({
+                    user_id: DEFAULT_USER_ID,
+                    bpm,
+                    confidence,
+                    signal_quality: signalQuality,
+                });
+            } catch {
+                Alert.alert(
+                    'Could not save reading',
+                    'Your BPM was measured but could not be saved. Check your Supabase setup in .env and run supabase/readings.sql.',
+                );
+            } finally {
+                setIsSaving(false);
+            }
+        }
+
+        reset();
+        navigation.goBack();
+    }, [bpm, confidence, navigation, reset, signalQuality]);
+
     if (!device || !hasPermission || !format) return <View className="flex-1 bg-black" />;
 
     return (
         <View className="flex-1 bg-black">
-            {/* Camera Feed */}
             <View className="flex-1 rounded-3xl overflow-hidden m-2 border-2 border-gray-800">
                 <Camera
                     style={StyleSheet.absoluteFill}
@@ -38,7 +65,6 @@ export const PulseCheckScreen = () => {
                     torch={isRecording ? 'on' : 'off'}
                 />
 
-                {/* Overlay Grid/Instructions */}
                 <View className="absolute inset-0 items-center justify-center">
                     {!isRecording && (
                         <View className="bg-black/60 p-6 rounded-2xl items-center">
@@ -57,7 +83,6 @@ export const PulseCheckScreen = () => {
                 </View>
             </View>
 
-            {/* Real-time Stats */}
             {isRecording && (
                 <View className="h-1/3 p-4 bg-background rounded-t-3xl border-t border-gray-800">
                     <View className="items-center mb-6">
@@ -85,19 +110,15 @@ export const PulseCheckScreen = () => {
                     </View>
 
                     <Button
-                        title="Stop"
+                        title={isSaving ? 'Saving...' : 'Stop'}
                         variant="secondary"
                         className="mt-6 bg-red-900"
-                        onPress={() => {
-                            setIsRecording(false);
-                            reset();
-                            navigation.goBack();
-                        }}
+                        disabled={isSaving}
+                        onPress={handleStop}
                     />
                 </View>
             )}
 
-            {/* Close Button */}
             {!isRecording && (
                 <View className="absolute top-12 left-4">
                     <X color="white" onPress={() => navigation.goBack()} />

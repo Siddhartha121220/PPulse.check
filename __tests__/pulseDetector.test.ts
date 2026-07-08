@@ -9,9 +9,10 @@ describe('PulseSignalProcessor', () => {
 
         for (let index = 0; index < sampleCount; index += 1) {
             const timeSeconds = index / sampleRate;
-            const baseline = Math.sin((2 * Math.PI * targetBpm * timeSeconds) / 60);
+            const pulse = Math.sin((2 * Math.PI * targetBpm * timeSeconds) / 60);
             const harmonic = 0.18 * Math.sin((4 * Math.PI * targetBpm * timeSeconds) / 60);
-            processor.addSample(baseline + harmonic, index * (1000 / sampleRate));
+            const greenChannel = 150 + 8 * pulse + 8 * harmonic;
+            processor.addSample(greenChannel, index * (1000 / sampleRate));
         }
 
         expect(processor.getBPM()).toBeGreaterThanOrEqual(targetBpm - 2);
