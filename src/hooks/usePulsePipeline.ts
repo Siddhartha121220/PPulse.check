@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useFrameProcessor } from 'react-native-vision-camera';
 import { useFaceDetector } from 'react-native-vision-camera-face-detector';
 import { Worklets, useRunOnJS } from 'react-native-worklets-core';
+import { useSharedValue } from 'react-native-reanimated';
 import { PipelineController, PipelineState } from '../core/PipelineController';
 import { AlgorithmManager } from '../core/AlgorithmManager';
 import { ConfigurationManager } from '../core/ConfigurationManager';
@@ -32,12 +33,21 @@ export function usePulsePipeline() {
   const pipelineRef = useRef<PipelineController | null>(null);
   const [state, setState] = useState<PipelineState | null>(null);
 
-  // Worklet dependencies
+  // Shared values to pass state to the worklet thread safely
+  const modeShared = useSharedValue<'standard' | 'enhanced' | 'visualization'>('standard');
+  const resetTrigger = useSharedValue<number>(0);
+
+  // Worklet context to store class instances on the worklet thread to preserve prototype methods
+  const workletContext = useRef({
+    detector: null as FaceDetector | null,
+    tracker: null as FaceTracker | null,
+    roiManager: null as ROIManager | null,
+    skinSegmenter: null as SkinSegmenter | null,
+    evmEnhancer: null as EulerianMagnification | null,
+    lastResetTrigger: 0,
+  }).current;
+
   const { detectFaces } = useFaceDetector();
-  const faceDetector = useRef(new FaceDetector(200)).current;
-  const faceTracker = useRef(new FaceTracker()).current;
-  const roiManager = useRef(new ROIManager()).current;
-  const skinSegmenter = useRef(new SkinSegmenter()).current;
 
   useEffect(() => {
     configManager.load().then(() => {
@@ -63,8 +73,41 @@ export function usePulsePipeline() {
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet';
     
+    // Instantiate components inside the worklet thread so they have correct context/prototypes
+    if (workletContext.detector === null) {
+      workletContext.detector = new FaceDetector(200);
+    }
+    if (workletContext.tracker === null) {
+      workletContext.tracker = new FaceTracker();
+    }
+    if (workletContext.roiManager === null) {
+      workletContext.roiManager = new ROIManager();
+    }
+    if (workletContext.skinSegmenter === null) {
+      workletContext.skinSegmenter = new SkinSegmenter();
+    }
+    if (workletContext.evmEnhancer === null) {
+      workletContext.evmEnhancer = new EulerianMagnification();
+      workletContext.evmEnhancer.initialize({
+        pyramidLevels: 4,
+        amplificationFactor: 30,
+        frequencyLow: 0.7,
+        frequencyHigh: 3.0,
+        filterOrder: 2,
+        chromAttenuation: 0.1,
+        sampleRate: 30,
+      });
+    }
+
+    // Synchronize resets from the JS thread
+    if (resetTrigger.value > workletContext.lastResetTrigger) {
+      workletContext.lastResetTrigger = resetTrigger.value;
+      workletContext.tracker.reset();
+      workletContext.evmEnhancer.reset();
+    }
+    
     // 1. Detect Face
-    const detection = faceDetector.detect(frame, performance.now(), detectFaces);
+    const detection = workletContext.detector.detect(frame, performance.now(), detectFaces);
     
     let face = null;
     let patches: ROIPatch[] = [];
@@ -73,17 +116,14 @@ export function usePulsePipeline() {
 
     if (detection) {
       // 2. Track Face
-      face = faceTracker.update(detection);
+      face = workletContext.tracker.update(detection);
     } else {
-      face = faceTracker.predict();
+      face = workletContext.tracker.predict();
     }
 
     if (face) {
       // 3. Extract ROIs
-      patches = roiManager.extractROIs(frame, face);
-      
-      // Get active enhancer (either none or EVM)
-      const enhancer = algorithmManager.getActiveEnhancement();
+      patches = workletContext.roiManager.extractROIs(frame, face);
       
       // 4. Segment Skin and optionally Enhance
       let totalSkinRatio = 0;
@@ -92,11 +132,11 @@ export function usePulsePipeline() {
 
       for (let i = 0; i < patches.length; i++) {
         // Segment
-        const { patch, coveredRatio } = skinSegmenter.segment(patches[i]);
+        const { patch, coveredRatio } = workletContext.skinSegmenter.segment(patches[i]);
         
-        // Enhance (EVM)
-        if (enhancer && enhancer.id !== 'none') {
-           patch.pixels = enhancer.processFrame(patch.pixels, patch.width, patch.height);
+        // Enhance (EVM) if not in Standard Mode
+        if (modeShared.value !== 'standard') {
+           patch.pixels = workletContext.evmEnhancer.processFrame(patch.pixels, patch.width, patch.height);
         }
         
         patches[i] = patch;
@@ -130,9 +170,13 @@ export function usePulsePipeline() {
   }, []);
 
   const start = useCallback(() => {
-    faceTracker.reset();
-    if (pipelineRef.current) pipelineRef.current.start();
-  }, [faceTracker]);
+    resetTrigger.value = resetTrigger.value + 1;
+    if (pipelineRef.current) {
+      const mode = pipelineRef.current.getState().mode;
+      modeShared.value = mode;
+      pipelineRef.current.start();
+    }
+  }, [pipelineRef, modeShared, resetTrigger]);
 
   const stop = useCallback(() => {
     return pipelineRef.current ? pipelineRef.current.stop() : null;
