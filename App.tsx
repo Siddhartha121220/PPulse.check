@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { PulseCheckScreen } from './src/screens/PulseCheckScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
+import { VisualizationScreen } from './src/screens/VisualizationScreen';
 import './global.css'; // NativeWind
 
 import { RootStackParamList } from './src/types';
@@ -24,6 +25,7 @@ function App(): React.JSX.Element {
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="PulseCheck" component={PulseCheckScreen} />
           <Stack.Screen name="History" component={HistoryScreen} />
+          <Stack.Screen name="Visualization" component={VisualizationScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

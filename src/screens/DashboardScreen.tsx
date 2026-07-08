@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,7 +11,12 @@ import {
     formatRelativeTime,
     formatSessionTime,
 } from '../services/readingsService';
+import { ConfigurationManager } from '../core/ConfigurationManager';
+import { ModeSelector } from '../components/ui/ModeSelector';
 import type { PulseReading, RootStackParamList } from '../types';
+import type { PipelineMode } from '../types/pipeline';
+
+const configManager = new ConfigurationManager();
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -20,6 +25,18 @@ export const DashboardScreen = () => {
     const [readings, setReadings] = useState<PulseReading[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [currentMode, setCurrentMode] = useState<PipelineMode>('standard');
+
+    useEffect(() => {
+        configManager.load().then(() => {
+            setCurrentMode(configManager.getMode());
+        });
+    }, []);
+
+    const handleModeSelect = async (mode: PipelineMode) => {
+        setCurrentMode(mode);
+        await configManager.setMode(mode);
+    };
 
     const loadDashboardData = useCallback(async () => {
         setIsLoading(true);
@@ -63,10 +80,24 @@ export const DashboardScreen = () => {
                     </View>
                     <Text className="text-gray-400 text-sm mb-1">Ready for a checkup?</Text>
                     <Text className="text-white text-3xl font-bold mb-6">Start Pulse Check</Text>
+                    
+                    <View className="w-full mb-6">
+                        <ModeSelector 
+                            currentMode={currentMode} 
+                            onModeSelect={handleModeSelect} 
+                        />
+                    </View>
+
                     <Button
-                        title="Start Reading"
+                        title={currentMode === 'visualization' ? 'Start Visualization' : 'Start Reading'}
                         className="w-48"
-                        onPress={() => navigation.navigate('PulseCheck')}
+                        onPress={() => {
+                            if (currentMode === 'visualization') {
+                                navigation.navigate('Visualization');
+                            } else {
+                                navigation.navigate('PulseCheck');
+                            }
+                        }}
                     />
                 </Card>
 

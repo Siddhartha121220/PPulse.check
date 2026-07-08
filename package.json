@@ -25,6 +25,7 @@
     "react-native-svg": "^15.15.1",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-vision-camera": "^4.7.3",
+    "react-native-vision-camera-face-detector": "^1.10.2",
     "react-native-worklets": "^0.8.0",
     "react-native-worklets-core": "^1.6.3",
     "tailwindcss": "^3.4.19"
