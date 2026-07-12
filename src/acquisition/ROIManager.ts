@@ -16,7 +16,8 @@ export function extractROIs(frame: Frame, face: SmoothedFace): ROIPatch[] {
     return [];
   }
 
-  const bytesPerPixel = frame.pixelFormat === 'rgb' ? 3 : 4;
+  // VisionCamera's 'rgb' format is actually 32-bit RGBA (4 bytes per pixel).
+  const bytesPerPixel = 4;
   // Use frame.bytesPerRow for correct row stride (includes Android row-padding).
   // Fall back to width*bpp if bytesPerRow is 0/undefined (some builds/devices).
   const rowStride = (frame.bytesPerRow > 0)
