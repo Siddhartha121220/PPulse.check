@@ -120,6 +120,23 @@ export class PipelineController {
     const activeMode = mode ?? this.configManager.getMode();
     this.algorithmManager.applyMode(activeMode);
 
+    // Build config before initializing plugins
+    const config = this.configManager.buildPipelineConfig();
+
+    // Initialize all active plugins with their configs
+    const extractor = this.algorithmManager.getActiveExtraction();
+    if (extractor) {
+      extractor.initialize(config.extraction);
+    }
+    const processor = this.algorithmManager.getActiveProcessing();
+    if (processor) {
+      processor.initialize(config.processing);
+    }
+    const enhancer = this.algorithmManager.getActiveEnhancement();
+    if (enhancer) {
+      enhancer.initialize(config.enhancement);
+    }
+
     // Reset all plugins for fresh session
     this.algorithmManager.resetAllPlugins();
     this.perfMonitor.reset();
@@ -264,7 +281,8 @@ export class PipelineController {
             this.state.statusText = 'Signal too noisy, please hold still';
           }
         } else if (!this.signalBuffer.isFull()) {
-          const progress = Math.round((this.signalBuffer.getCount() / this.configManager.buildPipelineConfig().processing.windowSize) * 100);
+          const bufferConfig = this.configManager.buildPipelineConfig();
+          const progress = Math.round((this.signalBuffer.getCount() / bufferConfig.processing.windowSize) * 100);
           this.state.statusText = `Calibrating (${progress}%)...`;
         }
       } else {
@@ -274,7 +292,7 @@ export class PipelineController {
       this.state.statusText = 'Displaying magnified video';
     }
 
-    // Update FPS
+    // Update FPS every frame (not just when FFT fires)
     this.state.fps = Math.round(this.perfMonitor.getAverageFps());
 
     this.throttledNotify();

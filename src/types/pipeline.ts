@@ -255,7 +255,7 @@ export const DEFAULT_EXTRACTION_CONFIG: ExtractionConfig = {
 };
 
 export const DEFAULT_PROCESSING_CONFIG: ProcessingConfig = {
-  windowSize: 512,
+  windowSize: 128,
   windowOverlap: 0.5,
   windowFunction: 'hann',
   frequencyRangeLow: 0.7,
