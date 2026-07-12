@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { Alert, View, Text, StyleSheet } from 'react-native';
+import { Alert, View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Camera, useCameraPermission } from 'react-native-vision-camera';
 import { useCameraManager } from '../acquisition/CameraManager';
 import { usePulsePipeline } from '../hooks/usePulsePipeline';
@@ -14,7 +14,7 @@ import { SignalChart } from '../components/ui/SignalChart';
 export const PulseCheckScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const navigation = useNavigation();
-    const { state, frameProcessor, start, stop, getActiveAlgorithms, getSessionDurationSec, configManager } = usePulsePipeline();
+    const { state, isReady, frameProcessor, start, stop, getActiveAlgorithms, getSessionDurationSec, configManager } = usePulsePipeline();
     const [isSaving, setIsSaving] = useState(false);
     const recorder = useRef(new MeasurementRecorder()).current;
     
@@ -104,10 +104,15 @@ export const PulseCheckScreen = () => {
                             <Activity size={48} color="#14b8a6" className="mb-4" />
                             <Text className="text-white text-center font-bold text-lg mb-2">Face the camera</Text>
                             <Text className="text-gray-300 text-center text-sm mb-6">Ensure your face is well-lit and hold still</Text>
-                            <Button
-                                title="Start Measurement"
-                                onPress={handleStart}
-                            />
+                            {!isReady ? (
+                                <ActivityIndicator color="#14b8a6" size="large" />
+                            ) : (
+                                <Button
+                                    title="Start Measurement"
+                                    onPress={handleStart}
+                                    disabled={!isReady}
+                                />
+                            )}
                         </View>
                     )}
                 </View>

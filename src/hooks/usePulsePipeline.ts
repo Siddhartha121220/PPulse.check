@@ -34,6 +34,7 @@ algorithmManager.registerProcessing(new FFTAnalyzer());
 export function usePulsePipeline() {
   const pipelineRef = useRef<PipelineController | null>(null);
   const [state, setState] = useState<PipelineState | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   // Shared values to pass state to the worklet thread safely
   const modeShared = useSharedValue<'standard' | 'enhanced' | 'visualization'>('standard');
@@ -53,6 +54,7 @@ export function usePulsePipeline() {
     configManager.load().then(() => {
       pipelineRef.current = new PipelineController(algorithmManager, configManager);
       pipelineRef.current.subscribe(setState);
+      setIsReady(true);
     });
 
     return () => {
@@ -185,6 +187,7 @@ export function usePulsePipeline() {
 
   return {
     state,
+    isReady,
     frameProcessor,
     start,
     stop,

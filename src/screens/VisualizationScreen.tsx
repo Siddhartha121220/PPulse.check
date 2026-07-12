@@ -21,11 +21,15 @@ export const VisualizationScreen = () => {
     // back to a Skia canvas. For this milestone, we demonstrate the pipeline
     // is running by showing the ROI tracking and status text.
     
-    const { state, frameProcessor, start, stop, configManager } = usePulsePipeline();
+    const { state, isReady, frameProcessor, start, stop, configManager } = usePulsePipeline();
     
     useEffect(() => {
         if (!hasPermission) requestPermission();
-        
+    }, [hasPermission, requestPermission]);
+
+    useEffect(() => {
+        if (!isReady) return;
+
         // Force visualization mode for this screen
         configManager.setMode('visualization').then(() => {
             start();
@@ -36,7 +40,7 @@ export const VisualizationScreen = () => {
             // Restore default mode on exit
             configManager.setMode('standard');
         };
-    }, [hasPermission, requestPermission, configManager, start, stop]);
+    }, [isReady, configManager, start, stop]);
 
     // Usually front camera for visualization
     const { device, format } = useCameraManager('front', 30);
