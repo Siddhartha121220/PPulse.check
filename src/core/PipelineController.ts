@@ -220,9 +220,9 @@ export class PipelineController {
     this.state.roiPatches = roiPatches;
 
     if (!face || !rgbSample) {
-      this.state.statusText = face
-        ? 'Keep forehead and cheeks visible'
-        : 'Position your face in the frame';
+      this.state.statusText = !face
+        ? 'No face detected (hold camera closer)'
+        : `Face OK, no RGB sample (Patches: ${roiPatches.length})`;
       // Always update FPS so the user can confirm frames are flowing
       this.state.fps = Math.round(this.perfMonitor.getAverageFps());
       this.throttledNotify();
@@ -275,17 +275,18 @@ export class PipelineController {
             this.state.confidence = Math.round(finalConfidence * 100);
             this.state.signalQuality = this.hrEstimator.mapSignalQuality(finalConfidence);
             this.state.spectrum = freqResult.spectrum ?? null;
-            this.state.statusText = 'Measuring heart rate...';
+            this.state.statusText = `Measuring HR... BPM: ${Math.round(bpm)}`;
           } else {
-            this.state.statusText = 'Signal weak — hold still & improve lighting';
+            const rawBpm = freqResult.dominantFrequencyHz * 60;
+            this.state.statusText = `Signal weak (f: ${freqResult.dominantFrequencyHz.toFixed(2)}, BPM: ${rawBpm.toFixed(0)}, SNR Conf: ${freqResult.confidence.toFixed(2)})`;
           }
         } else if (!halfFull) {
           const progress = Math.round((count / Math.floor(windowSize / 2)) * 100);
-          this.state.statusText = `Warming up (${progress}%)...`;
+          this.state.statusText = `Warming up (${progress}%) - Count: ${count}/64`;
         }
       } else {
         // Extractor still filling its own sliding window (first ~32 frames)
-        this.state.statusText = `Buffering signal — keep face in frame`;
+        this.state.statusText = `Buffering: BVP NaN (R:${rgbSample.r.toFixed(3)} G:${rgbSample.g.toFixed(3)} B:${rgbSample.b.toFixed(3)})`;
       }
     } else if (this.state.mode === 'visualization') {
       this.state.statusText = 'Displaying magnified video';

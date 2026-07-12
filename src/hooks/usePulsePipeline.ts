@@ -48,7 +48,11 @@ export function usePulsePipeline() {
     lastResetTrigger: 0,
   }).current;
 
-  const { detectFaces } = useFaceDetector();
+  const { detectFaces } = useFaceDetector({
+    performanceMode: 'fast',
+    contourMode: 'all',
+    landmarkMode: 'all',
+  });
 
   useEffect(() => {
     configManager.load().then(() => {

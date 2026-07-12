@@ -30,9 +30,13 @@ export function detectFace(
       if (faces && faces.length > 0) {
         state.lastResult = mapFaceResult(faces[0]);
       } else {
+        if (state.lastResult !== null) {
+          console.log(`[FaceDetector] Face lost. Frame: ${frame.width}x${frame.height}, format: ${frame.pixelFormat}`);
+        }
         state.lastResult = null;
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.log(`[FaceDetector] Error detecting face: ${e?.message || e}. Frame: ${frame.width}x${frame.height}`);
       state.lastResult = null;
     }
     state.lastDetectionTime = timestamp;
