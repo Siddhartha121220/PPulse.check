@@ -16,11 +16,15 @@ export function extractROIs(frame: Frame, face: SmoothedFace): ROIPatch[] {
     return [];
   }
 
-  const bytesPerPixel = frame.pixelFormat === 'rgb' ? 3 : 4; 
+  // IMPORTANT: Use frame.bytesPerRow (not frame.width * bytesPerPixel).
+  // On Android, camera frames have row-stride padding so bytesPerRow >= width * bpp.
+  // Using frame.width causes every row to be read from a wrong offset → garbage pixels.
+  const bytesPerPixel = frame.pixelFormat === 'rgb' ? 3 : 4;
+  const rowStride = frame.bytesPerRow; // correct stride including any padding
 
-  patches.push(extractPatch(buffer, frame.width, frame.height, bytesPerPixel, foreheadBox, 'forehead'));
-  patches.push(extractPatch(buffer, frame.width, frame.height, bytesPerPixel, leftCheekBox, 'leftCheek'));
-  patches.push(extractPatch(buffer, frame.width, frame.height, bytesPerPixel, rightCheekBox, 'rightCheek'));
+  patches.push(extractPatch(buffer, frame.width, frame.height, rowStride, bytesPerPixel, foreheadBox, 'forehead'));
+  patches.push(extractPatch(buffer, frame.width, frame.height, rowStride, bytesPerPixel, leftCheekBox, 'leftCheek'));
+  patches.push(extractPatch(buffer, frame.width, frame.height, rowStride, bytesPerPixel, rightCheekBox, 'rightCheek'));
 
   return patches;
 }
@@ -29,6 +33,7 @@ function extractPatch(
   buffer: Uint8Array,
   frameWidth: number,
   frameHeight: number,
+  rowStride: number,
   bytesPerPixel: number,
   bbox: BoundingBox,
   region: 'forehead' | 'leftCheek' | 'rightCheek'
@@ -47,10 +52,11 @@ function extractPatch(
   
   for (let y = startY; y < endY; y++) {
     for (let x = startX; x < endX; x++) {
-      const srcIdx = (y * frameWidth + x) * bytesPerPixel;
-      const r = buffer[srcIdx];
-      const g = buffer[srcIdx + 1];
-      const b = buffer[srcIdx + 2];
+      // Use rowStride (bytes per row including padding) not frameWidth * bpp
+      const srcIdx = y * rowStride + x * bytesPerPixel;
+      const r = buffer[srcIdx] ?? 0;
+      const g = buffer[srcIdx + 1] ?? 0;
+      const b = buffer[srcIdx + 2] ?? 0;
       
       pixels[destIdx++] = r / 255.0;
       pixels[destIdx++] = g / 255.0;

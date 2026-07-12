@@ -220,7 +220,11 @@ export class PipelineController {
     this.state.roiPatches = roiPatches;
 
     if (!face || !rgbSample) {
-      this.state.statusText = 'Position your face in the frame';
+      this.state.statusText = face
+        ? 'Keep forehead and cheeks visible'
+        : 'Position your face in the frame';
+      // Always update FPS so the user can confirm frames are flowing
+      this.state.fps = Math.round(this.perfMonitor.getAverageFps());
       this.throttledNotify();
       return;
     }

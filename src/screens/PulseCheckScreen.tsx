@@ -103,10 +103,18 @@ export const PulseCheckScreen = () => {
                     pointerEvents="box-none"
                 >
                     {!isRecording && (
-                        <View className="bg-black/60 p-6 rounded-2xl items-center">
-                            <Activity size={48} color="#14b8a6" className="mb-4" />
-                            <Text className="text-white text-center font-bold text-lg mb-2">Face the camera</Text>
-                            <Text className="text-gray-300 text-center text-sm mb-6">Ensure your face is well-lit and hold still</Text>
+                        <View className="bg-black/60 p-6 rounded-2xl items-center" style={{ maxWidth: 300 }}>
+                            <Activity size={40} color="#14b8a6" className="mb-3" />
+                            <Text className="text-white text-center font-bold text-lg mb-1">Prepare for scan</Text>
+                            <Text className="text-primary text-center text-xs font-semibold mb-3 uppercase tracking-wider">
+                                Reads: Forehead · Left Cheek · Right Cheek
+                            </Text>
+                            <View className="mb-4 w-full">
+                                <Text className="text-gray-300 text-sm mb-1">✓  Clear your forehead — move hair or hands away</Text>
+                                <Text className="text-gray-300 text-sm mb-1">✓  Keep both cheeks fully visible</Text>
+                                <Text className="text-gray-300 text-sm mb-1">✓  Face a steady light source</Text>
+                                <Text className="text-gray-300 text-sm">✓  Hold still for ~10 seconds</Text>
+                            </View>
                             {!isReady ? (
                                 <ActivityIndicator color="#14b8a6" size="large" />
                             ) : (
