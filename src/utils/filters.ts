@@ -18,6 +18,7 @@ import type { WindowFunction } from '../types/pipeline';
 const windowCache = new Map<string, Float32Array>();
 
 export function getWindow(type: WindowFunction, length: number): Float32Array {
+  'worklet';
   const key = `${type}_${length}`;
   const cached = windowCache.get(key);
   if (cached) return cached;
@@ -61,6 +62,7 @@ export function applyWindow(
   signal: Float32Array,
   windowType: WindowFunction,
 ): Float32Array {
+  'worklet';
   const w = getWindow(windowType, signal.length);
   for (let i = 0; i < signal.length; i++) {
     signal[i] *= w[i];
@@ -82,6 +84,7 @@ export function butterworthBandpass(
   highCutHz: number,
   sampleRate: number,
 ): BiquadCoefficients {
+  'worklet';
   const w0 = (2 * Math.PI * Math.sqrt(lowCutHz * highCutHz)) / sampleRate;
   const bw = (2 * Math.PI * (highCutHz - lowCutHz)) / sampleRate;
 
@@ -146,6 +149,7 @@ export function applyBiquad(
   signal: Float32Array,
   coeffs: BiquadCoefficients,
 ): Float32Array {
+  'worklet';
   const state = createBiquadFilterState(coeffs);
   const out = new Float32Array(signal.length);
   for (let i = 0; i < signal.length; i++) {

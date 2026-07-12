@@ -162,7 +162,7 @@ export function usePulsePipeline() {
 
     // 5. Send to PipelineController on JS Thread
     runOnJS_handleFrameProcessed(rgbSample, face, patches, avgCoveredRatio);
-  }, []);
+  }, [detectFaces, runOnJS_handleFrameProcessed]);
 
   const start = useCallback(() => {
     resetTrigger.value = resetTrigger.value + 1;

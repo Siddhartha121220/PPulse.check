@@ -107,6 +107,7 @@ export function uint8ToNormalizedRGB(
   data: Uint8Array,
   offset: number,
 ): RGB {
+  'worklet';
   return {
     r: (data[offset] ?? 0) / 255,
     g: (data[offset + 1] ?? 0) / 255,

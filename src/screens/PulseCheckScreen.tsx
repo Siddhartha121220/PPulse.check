@@ -98,9 +98,12 @@ export const PulseCheckScreen = () => {
                     </>
                 )}
 
-                <View className="absolute inset-0 items-center justify-center pointer-events-none">
+                <View
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}
+                    pointerEvents="box-none"
+                >
                     {!isRecording && (
-                        <View className="bg-black/60 p-6 rounded-2xl items-center pointer-events-auto">
+                        <View className="bg-black/60 p-6 rounded-2xl items-center">
                             <Activity size={48} color="#14b8a6" className="mb-4" />
                             <Text className="text-white text-center font-bold text-lg mb-2">Face the camera</Text>
                             <Text className="text-gray-300 text-center text-sm mb-6">Ensure your face is well-lit and hold still</Text>
@@ -110,7 +113,6 @@ export const PulseCheckScreen = () => {
                                 <Button
                                     title="Start Measurement"
                                     onPress={handleStart}
-                                    disabled={!isReady}
                                 />
                             )}
                         </View>
