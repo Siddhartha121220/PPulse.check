@@ -246,51 +246,46 @@ export class PipelineController {
       this.perfMonitor.endFrame('extraction');
 
       if (!isNaN(bvpValue)) {
-        // Feed BVP to signal buffer
         this.signalBuffer.push(bvpValue, Date.now());
 
-        // ── Signal processing stage (FFT) ─────────────────────
         const processor = this.algorithmManager.getActiveProcessing();
-        
-        // We run FFT only periodically, not every frame, to save CPU.
-        // Or we run it if the buffer is full and we haven't updated in a while.
-        if (processor && this.signalBuffer.isFull() && (Date.now() - this.lastUpdateTime >= PipelineController.UI_UPDATE_INTERVAL_MS)) {
+        const bufferConfig = this.configManager.buildPipelineConfig();
+        const windowSize = bufferConfig.processing.windowSize;
+        const count = this.signalBuffer.getCount();
+
+        // Run FFT once buffer has >= half the window size AND throttle has expired.
+        // Using half-window gives a first reading sooner; subsequent runs refine it.
+        const halfFull = count >= Math.floor(windowSize / 2);
+        const throttleReady = Date.now() - this.lastUpdateTime >= PipelineController.UI_UPDATE_INTERVAL_MS;
+
+        if (processor && halfFull && throttleReady) {
           this.perfMonitor.startFrame('processing');
-          
           const rawSignal = this.signalBuffer.getRecentValues();
           const effectiveSampleRate = this.signalBuffer.getSampleRate();
-          
           const freqResult = processor.estimateFrequency(rawSignal, effectiveSampleRate);
-          
           this.perfMonitor.endFrame('processing');
+          this.lastUpdateTime = Date.now();
 
-          // Estimate HR
           const bpm = this.hrEstimator.estimateBPM(freqResult.dominantFrequencyHz);
-          
           if (!isNaN(bpm)) {
-            // Compute Confidence
             const finalConfidence = this.confidenceEstimator.computeConfidence(
-              freqResult.confidence,
-              rawSignal,
-              face,
-              coveredRatio
+              freqResult.confidence, rawSignal, face, coveredRatio,
             );
-
             this.state.bpm = Math.round(bpm);
             this.state.confidence = Math.round(finalConfidence * 100);
             this.state.signalQuality = this.hrEstimator.mapSignalQuality(finalConfidence);
             this.state.spectrum = freqResult.spectrum ?? null;
             this.state.statusText = 'Measuring heart rate...';
           } else {
-            this.state.statusText = 'Signal too noisy, please hold still';
+            this.state.statusText = 'Signal weak — hold still & improve lighting';
           }
-        } else if (!this.signalBuffer.isFull()) {
-          const bufferConfig = this.configManager.buildPipelineConfig();
-          const progress = Math.round((this.signalBuffer.getCount() / bufferConfig.processing.windowSize) * 100);
-          this.state.statusText = `Calibrating (${progress}%)...`;
+        } else if (!halfFull) {
+          const progress = Math.round((count / Math.floor(windowSize / 2)) * 100);
+          this.state.statusText = `Warming up (${progress}%)...`;
         }
       } else {
-        this.state.statusText = 'Collecting signal data...';
+        // Extractor still filling its own sliding window (first ~32 frames)
+        this.state.statusText = `Buffering signal — keep face in frame`;
       }
     } else if (this.state.mode === 'visualization') {
       this.state.statusText = 'Displaying magnified video';

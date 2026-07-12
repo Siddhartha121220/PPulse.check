@@ -16,11 +16,12 @@ export function extractROIs(frame: Frame, face: SmoothedFace): ROIPatch[] {
     return [];
   }
 
-  // IMPORTANT: Use frame.bytesPerRow (not frame.width * bytesPerPixel).
-  // On Android, camera frames have row-stride padding so bytesPerRow >= width * bpp.
-  // Using frame.width causes every row to be read from a wrong offset → garbage pixels.
   const bytesPerPixel = frame.pixelFormat === 'rgb' ? 3 : 4;
-  const rowStride = frame.bytesPerRow; // correct stride including any padding
+  // Use frame.bytesPerRow for correct row stride (includes Android row-padding).
+  // Fall back to width*bpp if bytesPerRow is 0/undefined (some builds/devices).
+  const rowStride = (frame.bytesPerRow > 0)
+    ? frame.bytesPerRow
+    : frame.width * bytesPerPixel;
 
   patches.push(extractPatch(buffer, frame.width, frame.height, rowStride, bytesPerPixel, foreheadBox, 'forehead'));
   patches.push(extractPatch(buffer, frame.width, frame.height, rowStride, bytesPerPixel, leftCheekBox, 'leftCheek'));
@@ -52,15 +53,15 @@ function extractPatch(
   
   for (let y = startY; y < endY; y++) {
     for (let x = startX; x < endX; x++) {
-      // Use rowStride (bytes per row including padding) not frameWidth * bpp
       const srcIdx = y * rowStride + x * bytesPerPixel;
-      const r = buffer[srcIdx] ?? 0;
-      const g = buffer[srcIdx + 1] ?? 0;
-      const b = buffer[srcIdx + 2] ?? 0;
-      
-      pixels[destIdx++] = r / 255.0;
-      pixels[destIdx++] = g / 255.0;
-      pixels[destIdx++] = b / 255.0;
+      // Bounds-check: avoid reading past end of buffer
+      if (srcIdx + 2 < buffer.length) {
+        pixels[destIdx++] = (buffer[srcIdx])     / 255.0;
+        pixels[destIdx++] = (buffer[srcIdx + 1]) / 255.0;
+        pixels[destIdx++] = (buffer[srcIdx + 2]) / 255.0;
+      } else {
+        destIdx += 3; // leave as 0
+      }
     }
   }
 
