@@ -85,14 +85,13 @@ export function butterworthBandpass(
   sampleRate: number,
 ): BiquadCoefficients {
   'worklet';
-  const w0 = (2 * Math.PI * Math.sqrt(lowCutHz * highCutHz)) / sampleRate;
-  const bw = (2 * Math.PI * (highCutHz - lowCutHz)) / sampleRate;
+  const f0 = Math.sqrt(lowCutHz * highCutHz);
+  const w0 = (2 * Math.PI * f0) / sampleRate;
 
-  // Pre-warp
-  const omega = 2 * Math.tan(w0 / 2);
-  const bandwidth = 2 * Math.tan(bw / 2);
-
-  const Q = omega / bandwidth;
+  // RBJ audio-eq-cookbook constant-0dB-peak-gain bandpass: w0 is already the
+  // digital angular frequency, so Q is just the center/bandwidth ratio — no
+  // analog pre-warp step is needed (or correct) here.
+  const Q = f0 / (highCutHz - lowCutHz);
   const alpha = Math.sin(w0) / (2 * Q);
 
   const b0 = alpha;

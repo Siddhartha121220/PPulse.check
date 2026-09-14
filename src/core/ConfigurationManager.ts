@@ -131,3 +131,10 @@ export class ConfigurationManager {
     return this.loaded;
   }
 }
+
+/**
+ * Shared singleton — DashboardScreen and usePulsePipeline must observe the same
+ * in-memory config, or a mode/camera change made from one place can silently
+ * fail to be picked up by the other until a full app restart.
+ */
+export const configManager = new ConfigurationManager();

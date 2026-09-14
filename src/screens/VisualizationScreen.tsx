@@ -4,7 +4,7 @@ import { Camera, useCameraPermission } from 'react-native-vision-camera';
 import { useCameraManager } from '../acquisition/CameraManager';
 import { usePulsePipeline } from '../hooks/usePulsePipeline';
 import { X, Activity } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { FaceOverlay } from '../components/overlays/FaceOverlay';
 
 /**
@@ -16,7 +16,8 @@ import { FaceOverlay } from '../components/overlays/FaceOverlay';
 export const VisualizationScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const navigation = useNavigation();
-    
+    const isFocused = useIsFocused();
+
     // In a real app with EVM visualization, we might stream the modified pixels
     // back to a Skia canvas. For this milestone, we demonstrate the pipeline
     // is running by showing the ROI tracking and status text.
@@ -28,19 +29,27 @@ export const VisualizationScreen = () => {
     }, [hasPermission, requestPermission]);
 
     useEffect(() => {
-        if (!isReady) return;
+        // Also re-runs (and its cleanup fires) when the screen loses focus —
+        // react-navigation's native-stack keeps screens mounted underneath
+        // whatever's pushed on top, so without this the camera/pipeline would
+        // otherwise keep running in the background after navigating away.
+        if (!isReady || !isFocused) return;
+        let cancelled = false;
 
         // Force visualization mode for this screen
         configManager.setMode('visualization').then(() => {
-            start();
+            // Guard against losing focus/unmounting before this async write
+            // resolves — otherwise start() can fire after stop() already ran.
+            if (!cancelled) start();
         });
 
         return () => {
+            cancelled = true;
             stop();
             // Restore default mode on exit
             configManager.setMode('standard');
         };
-    }, [isReady, configManager, start, stop]);
+    }, [isReady, isFocused, configManager, start, stop]);
 
     // Usually front camera for visualization
     const { device, format } = useCameraManager('front', 30);
@@ -56,7 +65,7 @@ export const VisualizationScreen = () => {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     format={format}
-                    isActive={true}
+                    isActive={isFocused}
                     pixelFormat="rgb"
                     fps={30}
                     frameProcessor={isRecording ? frameProcessor : undefined}

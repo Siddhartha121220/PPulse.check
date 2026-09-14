@@ -34,6 +34,8 @@ interface StageHistory {
 export class PerformanceMonitor {
   private stages = new Map<string, StageHistory>();
   private frameTimes: Float32Array;
+  /** Ring buffer of 0/1 flags, parallel to frameTimes, for a windowed drop rate. */
+  private droppedRing: Uint8Array;
   private frameIndex = 0;
   private frameCount = 0;
   private lastFrameTimestamp = 0;
@@ -42,6 +44,7 @@ export class PerformanceMonitor {
 
   constructor() {
     this.frameTimes = new Float32Array(HISTORY_SIZE);
+    this.droppedRing = new Uint8Array(HISTORY_SIZE);
   }
 
   /**
@@ -85,11 +88,14 @@ export class PerformanceMonitor {
 
     if (this.lastFrameTimestamp > 0) {
       const delta = now - this.lastFrameTimestamp;
+      const dropped = delta > DROP_THRESHOLD_MS;
+
       this.frameTimes[this.frameIndex] = delta;
+      this.droppedRing[this.frameIndex] = dropped ? 1 : 0;
       this.frameIndex = (this.frameIndex + 1) % HISTORY_SIZE;
       if (this.frameCount < HISTORY_SIZE) this.frameCount++;
 
-      if (delta > DROP_THRESHOLD_MS) {
+      if (dropped) {
         this.droppedFrames++;
       }
     }
@@ -135,8 +141,11 @@ export class PerformanceMonitor {
    */
   isDroppingFrames(): boolean {
     if (this.totalFrames < 10) return false;
-    const recentTotal = Math.min(this.totalFrames, HISTORY_SIZE);
-    const dropRate = this.droppedFrames / recentTotal;
+    let recentDropped = 0;
+    for (let i = 0; i < this.frameCount; i++) {
+      recentDropped += this.droppedRing[i];
+    }
+    const dropRate = recentDropped / this.frameCount;
     return dropRate > 0.1;
   }
 
@@ -172,6 +181,7 @@ export class PerformanceMonitor {
   reset(): void {
     this.stages.clear();
     this.frameTimes.fill(0);
+    this.droppedRing.fill(0);
     this.frameIndex = 0;
     this.frameCount = 0;
     this.lastFrameTimestamp = 0;

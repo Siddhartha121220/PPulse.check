@@ -202,12 +202,14 @@ export class PipelineController {
    * @param face - Smoothed face tracking result (or null)
    * @param roiPatches - Extracted ROI patches
    * @param coveredRatio - Ratio of skin pixels in ROI (0–1)
+   * @param detectionError - Set if the native detectFaces() call itself threw on this frame
    */
   onFrameProcessed(
     rgbSample: RGBSample | null,
     face: SmoothedFace | null,
     roiPatches: ROIPatch[],
     coveredRatio: number,
+    detectionError: string | null = null,
   ): void {
     if (!this.state.isRunning) return;
 
@@ -220,7 +222,9 @@ export class PipelineController {
     this.state.roiPatches = roiPatches;
 
     if (!face || !rgbSample) {
-      this.state.statusText = !face
+      this.state.statusText = detectionError
+        ? `Face detection error: ${detectionError}`
+        : !face
         ? 'No face detected (hold camera closer)'
         : `Face OK, no RGB sample (Patches: ${roiPatches.length})`;
       // Always update FPS so the user can confirm frames are flowing
@@ -281,8 +285,9 @@ export class PipelineController {
             this.state.statusText = `Signal weak (f: ${freqResult.dominantFrequencyHz.toFixed(2)}, BPM: ${rawBpm.toFixed(0)}, SNR Conf: ${freqResult.confidence.toFixed(2)})`;
           }
         } else if (!halfFull) {
-          const progress = Math.round((count / Math.floor(windowSize / 2)) * 100);
-          this.state.statusText = `Warming up (${progress}%) - Count: ${count}/64`;
+          const halfWindow = Math.floor(windowSize / 2);
+          const progress = Math.round((count / halfWindow) * 100);
+          this.state.statusText = `Warming up (${progress}%) - Count: ${count}/${halfWindow}`;
         }
       } else {
         // Extractor still filling its own sliding window (first ~32 frames)

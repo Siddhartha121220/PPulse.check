@@ -5,7 +5,7 @@ import { useCameraManager } from '../acquisition/CameraManager';
 import { usePulsePipeline } from '../hooks/usePulsePipeline';
 import { MeasurementRecorder } from '../services/MeasurementRecorder';
 import { Activity, X } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Button } from '../components/ui/Button';
 import { FaceOverlay } from '../components/overlays/FaceOverlay';
 import { MetricsOverlay } from '../components/overlays/MetricsOverlay';
@@ -14,6 +14,7 @@ import { SignalChart } from '../components/ui/SignalChart';
 export const PulseCheckScreen = () => {
     const { hasPermission, requestPermission } = useCameraPermission();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const { state, isReady, frameProcessor, start, stop, getActiveAlgorithms, getSessionDurationSec, configManager } = usePulsePipeline();
     const [isSaving, setIsSaving] = useState(false);
     const recorder = useRef(new MeasurementRecorder()).current;
@@ -31,6 +32,15 @@ export const PulseCheckScreen = () => {
     }, [hasPermission, requestPermission, configManager]);
 
     const { device, format } = useCameraManager(cameraPosition, 30);
+
+    // react-navigation's native-stack keeps screens mounted underneath whatever's
+    // pushed on top, so without this a session left running would keep the
+    // camera/pipeline going in the background after the user navigates away.
+    useEffect(() => {
+        if (!isFocused && state?.isRunning) {
+            stop();
+        }
+    }, [isFocused, state?.isRunning, stop]);
 
     const handleStart = useCallback(() => {
         recorder.startSession();
@@ -78,7 +88,7 @@ export const PulseCheckScreen = () => {
                     style={StyleSheet.absoluteFill}
                     device={device}
                     format={format}
-                    isActive={true}
+                    isActive={isFocused}
                     pixelFormat="rgb"
                     fps={30}
                     frameProcessor={isRecording ? frameProcessor : undefined}

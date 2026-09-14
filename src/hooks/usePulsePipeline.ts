@@ -5,7 +5,7 @@ import { Worklets, useRunOnJS } from 'react-native-worklets-core';
 import { useSharedValue } from 'react-native-reanimated';
 import { PipelineController, PipelineState } from '../core/PipelineController';
 import { AlgorithmManager } from '../core/AlgorithmManager';
-import { ConfigurationManager } from '../core/ConfigurationManager';
+import { configManager } from '../core/ConfigurationManager';
 import type { ROIPatch } from '../types/pipeline';
 
 // Import pure functions and state interfaces for worklet
@@ -21,8 +21,7 @@ import { EulerianMagnification } from '../processing/enhancement/EulerianMagnifi
 import { POSExtractor } from '../processing/extraction/POSExtractor';
 import { FFTAnalyzer } from '../processing/frequency/FFTAnalyzer';
 
-// Singleton managers
-const configManager = new ConfigurationManager();
+// Singleton manager (configManager is the shared one from ConfigurationManager.ts)
 const algorithmManager = new AlgorithmManager();
 
 // Register plugins once
@@ -30,6 +29,22 @@ algorithmManager.registerEnhancement(new NoEnhancement());
 algorithmManager.registerEnhancement(new EulerianMagnification());
 algorithmManager.registerExtraction(new POSExtractor());
 algorithmManager.registerProcessing(new FFTAnalyzer());
+
+// Stable reference: useFaceDetector re-creates the native ML Kit plugin whenever
+// this options object's identity changes, so it must not be a fresh literal per render.
+//
+// Contours/landmarks are intentionally off: nothing downstream reads them (ROIManager
+// derives ROI boxes purely from the bbox, ConfidenceEstimator only uses velocity/coverage,
+// FaceOverlay only draws the bbox/ROI rects) — they were being computed and smoothed every
+// frame for no consumer. Contour extraction is also the most expensive and most fragile part
+// of ML Kit's per-frame analysis (it requires much more of the face clearly visible to
+// succeed), so this both raises achievable FPS and makes detection far more tolerant of a
+// close-up/partially-cropped face.
+const FACE_DETECTION_OPTIONS = {
+  performanceMode: 'fast' as const,
+  contourMode: 'none' as const,
+  landmarkMode: 'none' as const,
+};
 
 export function usePulsePipeline() {
   const pipelineRef = useRef<PipelineController | null>(null);
@@ -48,11 +63,7 @@ export function usePulsePipeline() {
     lastResetTrigger: 0,
   }).current;
 
-  const { detectFaces } = useFaceDetector({
-    performanceMode: 'fast',
-    contourMode: 'all',
-    landmarkMode: 'all',
-  });
+  const { detectFaces } = useFaceDetector(FACE_DETECTION_OPTIONS);
 
   useEffect(() => {
     configManager.load().then(() => {
@@ -68,9 +79,9 @@ export function usePulsePipeline() {
     };
   }, []);
 
-  const handleFrameProcessed = useCallback((rgbSample: any, face: any, patches: any, coveredRatio: number) => {
+  const handleFrameProcessed = useCallback((rgbSample: any, face: any, patches: any, coveredRatio: number, detectionError: string | null) => {
     if (pipelineRef.current) {
-      pipelineRef.current.onFrameProcessed(rgbSample, face, patches, coveredRatio);
+      pipelineRef.current.onFrameProcessed(rgbSample, face, patches, coveredRatio, detectionError);
     }
   }, []);
 
@@ -171,17 +182,21 @@ export function usePulsePipeline() {
     }
 
     // 5. Send to PipelineController on JS Thread
-    runOnJS_handleFrameProcessed(rgbSample, face, patches, avgCoveredRatio);
+    runOnJS_handleFrameProcessed(rgbSample, face, patches, avgCoveredRatio, workletContext.detectorState.lastError);
   }, [detectFaces, runOnJS_handleFrameProcessed]);
 
   const start = useCallback(() => {
     resetTrigger.value = resetTrigger.value + 1;
     if (pipelineRef.current) {
-      const mode = pipelineRef.current.getState().mode;
+      // Read the mode PipelineController.start() is about to apply, not the
+      // controller's current state — state.mode is still 'standard' (the
+      // INITIAL_STATE default) until start() runs, so reading it here always
+      // returned 'standard' and silently disabled EVM in every other mode.
+      const mode = configManager.getMode();
       modeShared.value = mode;
-      pipelineRef.current.start();
+      pipelineRef.current.start(mode);
     }
-  }, [pipelineRef, modeShared, resetTrigger]);
+  }, [modeShared, resetTrigger]);
 
   const stop = useCallback(() => {
     return pipelineRef.current ? pipelineRef.current.stop() : null;

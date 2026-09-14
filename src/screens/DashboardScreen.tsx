@@ -11,12 +11,13 @@ import {
     formatRelativeTime,
     formatSessionTime,
 } from '../services/readingsService';
-import { ConfigurationManager } from '../core/ConfigurationManager';
+import { configManager } from '../core/ConfigurationManager';
 import { ModeSelector } from '../components/ui/ModeSelector';
 import type { PulseReading, RootStackParamList } from '../types';
 import type { PipelineMode } from '../types/pipeline';
+import { createLogger } from '../monitoring/Logger';
 
-const configManager = new ConfigurationManager();
+const log = createLogger('DashboardScreen');
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -45,7 +46,8 @@ export const DashboardScreen = () => {
         try {
             const data = await fetchReadings(20);
             setReadings(data);
-        } catch {
+        } catch (err) {
+            log.warn('Failed to load dashboard data', { error: err });
             setError('Could not load dashboard data.');
             setReadings([]);
         } finally {

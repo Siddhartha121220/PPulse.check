@@ -23,21 +23,24 @@ export class FFTAnalyzer implements ISignalProcessingPlugin {
   }
 
   estimateFrequency(signal: Float32Array, sampleRate: number): FrequencyResult {
-    // 1. Copy signal to workspace to avoid mutating the source buffer
-    // Signal must match config.windowSize
+    // 1. Detrend and normalize only the real samples first — doing this after
+    // zero-padding (when the buffer isn't full yet) would bias the mean/std
+    // toward the padded zeros and introduce a step discontinuity at the
+    // padding boundary, leaking energy across the whole spectrum.
     const len = Math.min(signal.length, this.workspace.length);
-    this.workspace.fill(0);
-    this.workspace.set(signal.subarray(0, len));
+    const real = new Float32Array(len);
+    real.set(signal.subarray(0, len));
+    detrend(real);
+    const normalized = normalize(real);
 
-    // 2. Pre-process: Detrend and normalize
-    detrend(this.workspace);
-    const normalized = normalize(this.workspace);
+    this.workspace.fill(0);
+    this.workspace.set(normalized);
 
     // 3. Apply window function (e.g., Hann)
-    applyWindow(normalized, this.config.windowFunction);
+    applyWindow(this.workspace, this.config.windowFunction);
 
     // 4. Compute Power Spectral Density
-    const { psd, frequencies } = fftPSD(normalized, sampleRate);
+    const { psd, frequencies } = fftPSD(this.workspace, sampleRate);
 
     // 5. Find dominant peak in cardiac band
     const peak = findDominantFrequency(
