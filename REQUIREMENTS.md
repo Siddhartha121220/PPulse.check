@@ -7,9 +7,18 @@
   (Home/PulseCheck/History), all visually verified against a screenshot from the user's real
   device. Last relevant commits: `5bb8377` (scaffold), `af8e1ab` (fixed disabled-row legibility
   bug found from that on-device screenshot).
-- **Phase 2 (camera + native face-detection plugin) — NOT STARTED.** This is the next work. See
-  §5.1 and §7.2 below before starting: it's a genuinely bigger, riskier piece of work (native
-  Kotlin, not just JS/TSX), and should get its own on-device checkpoint before Phase 3 begins.
+- **Phase 2 (camera + native face-detection plugin) — DONE, confirmed on-device.** Custom Kotlin
+  frame-processor plugin (`android/app/src/main/java/com/ppulsecheck/FaceDetectionFrameProcessorPlugin.kt`)
+  wraps ML Kit face detection directly, fed the frame's native YUV image (not a decoded RGBA
+  bitmap). Returns a plain bbox — `{faceDetected, boundingBox, frameWidth, frameHeight}` — no
+  contours/landmarks. JS side: `src/acquisition/faceDetectionPlugin.ts` (module-level singleton
+  per §5.3) + `src/screens/PulseCheckScreen.tsx` (live preview, alignment guide that highlights on
+  detection, debug overlay). On-device screenshot confirmed: face detected: true, plausible bbox
+  (282x282) inside a 640x480 frame (VGA, matching §5.4 by default), guide turned lavender
+  correctly. FPS reads 10, but that's from the debug overlay's per-frame `runOnJS` round-trip, not
+  the plugin itself — deliberately not optimizing this yet (§7.6 polish phase).
+- **Phase 3 (ROI + RGB extraction) — NOT STARTED.** Next: extend the same native plugin to also
+  return per-region (forehead/cheek) averaged RGB, per §5.1/§7.3.
 - v1 is erased from the working tree as of commit `ac06161` but fully intact before that commit
   if anything needs to be referenced (the POS/FFT math especially — it was correct and is meant
   to be ported forward largely as-is in Phase 4).

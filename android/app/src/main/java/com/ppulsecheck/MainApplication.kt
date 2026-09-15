@@ -23,5 +23,8 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     loadReactNative(this)
+    // Forces the class (and its companion `init` block, which registers the frame processor
+    // plugin) to load at app start rather than waiting for first JS-side lookup.
+    Class.forName("com.ppulsecheck.FaceDetectionFrameProcessorPlugin")
   }
 }

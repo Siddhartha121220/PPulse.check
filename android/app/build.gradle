@@ -116,4 +116,6 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    implementation("com.google.mlkit:face-detection:16.1.7")
 }
