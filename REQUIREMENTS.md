@@ -1,5 +1,22 @@
 # HeartSense — Requirements v2 (Rebuild)
 
+## Status (update this section as phases complete)
+
+- **Phase 1 (scaffold) — DONE, confirmed on-device.** New design system (palette, `Card`,
+  `Button`, `ModeSelector` with the fixed full-width horizontal rows), navigation
+  (Home/PulseCheck/History), all visually verified against a screenshot from the user's real
+  device. Last relevant commits: `5bb8377` (scaffold), `af8e1ab` (fixed disabled-row legibility
+  bug found from that on-device screenshot).
+- **Phase 2 (camera + native face-detection plugin) — NOT STARTED.** This is the next work. See
+  §5.1 and §7.2 below before starting: it's a genuinely bigger, riskier piece of work (native
+  Kotlin, not just JS/TSX), and should get its own on-device checkpoint before Phase 3 begins.
+- v1 is erased from the working tree as of commit `ac06161` but fully intact before that commit
+  if anything needs to be referenced (the POS/FFT math especially — it was correct and is meant
+  to be ported forward largely as-is in Phase 4).
+- Environment note: this sandbox cannot `git push` (no GitHub credentials) — the user pushes
+  manually after each session. Don't assume a push failure here means something is wrong with git
+  itself.
+
 ## 0. Why this document exists
 
 v1 (the code being replaced) had a technically correct DSP core — POS extraction and the FFT/PSD
