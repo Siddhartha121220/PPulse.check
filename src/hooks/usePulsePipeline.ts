@@ -59,7 +59,14 @@ export function usePulsePipeline() {
   const workletContext = useRef({
     detectorState: null as FaceDetectorState | null,
     trackerState: null as FaceTrackerState | null,
-    evmState: null as EVMState | null,
+    // One EVMState per ROI region, not one shared instance: forehead/leftCheek/rightCheek
+    // have different pixel dimensions, so a single shared EVMState was being fully
+    // reallocated (thousands of filter objects) on almost every patch, every frame —
+    // a serious performance hit. Each region's own dimensions are stable frame-to-frame
+    // (ROIManager quantizes to a 4px grid), so per-region state reallocates rarely.
+    evmStateForehead: null as EVMState | null,
+    evmStateLeftCheek: null as EVMState | null,
+    evmStateRightCheek: null as EVMState | null,
     lastResetTrigger: 0,
   }).current;
 
@@ -79,9 +86,9 @@ export function usePulsePipeline() {
     };
   }, []);
 
-  const handleFrameProcessed = useCallback((rgbSample: any, face: any, patches: any, coveredRatio: number, detectionError: string | null) => {
+  const handleFrameProcessed = useCallback((rgbSample: any, face: any, patches: any, coveredRatio: number, detectionError: string | null, debugInfo: string | null) => {
     if (pipelineRef.current) {
-      pipelineRef.current.onFrameProcessed(rgbSample, face, patches, coveredRatio, detectionError);
+      pipelineRef.current.onFrameProcessed(rgbSample, face, patches, coveredRatio, detectionError, debugInfo);
     }
   }, []);
 
@@ -97,8 +104,8 @@ export function usePulsePipeline() {
     if (workletContext.trackerState === null) {
       workletContext.trackerState = createFaceTrackerState();
     }
-    if (workletContext.evmState === null) {
-      workletContext.evmState = createEVMState({
+    if (workletContext.evmStateForehead === null) {
+      const evmConfig = {
         pyramidLevels: 4,
         amplificationFactor: 30,
         frequencyLow: 0.7,
@@ -106,16 +113,21 @@ export function usePulsePipeline() {
         filterOrder: 2,
         chromAttenuation: 0.1,
         sampleRate: 30,
-      });
+      };
+      workletContext.evmStateForehead = createEVMState(evmConfig);
+      workletContext.evmStateLeftCheek = createEVMState(evmConfig);
+      workletContext.evmStateRightCheek = createEVMState(evmConfig);
     }
 
     // Synchronize resets from the JS thread
     if (resetTrigger.value > workletContext.lastResetTrigger) {
       workletContext.lastResetTrigger = resetTrigger.value;
       resetFaceTrackerState(workletContext.trackerState);
-      resetEVMState(workletContext.evmState);
+      resetEVMState(workletContext.evmStateForehead!);
+      resetEVMState(workletContext.evmStateLeftCheek!);
+      resetEVMState(workletContext.evmStateRightCheek!);
     }
-    
+
     // 1. Detect Face
     const detection = detectFace(frame, performance.now(), detectFaces, workletContext.detectorState);
     
@@ -146,10 +158,16 @@ export function usePulsePipeline() {
         const { coveredRatio } = segmentSkin(rawPatch);
         totalSkinRatio += coveredRatio;
 
-        // Enhance (EVM) if not in Standard Mode — operates on raw patch
+        // Enhance (EVM) if not in Standard Mode — operates on raw patch.
+        // Each region has its own EVMState (see workletContext init above) so a
+        // stably-sized region never gets its filter bank reallocated just because
+        // a differently-sized sibling region was processed in between.
         if (modeShared.value !== 'standard') {
+          const evmState = rawPatch.region === 'forehead' ? workletContext.evmStateForehead!
+            : rawPatch.region === 'leftCheek' ? workletContext.evmStateLeftCheek!
+            : workletContext.evmStateRightCheek!;
           rawPatch.pixels = processEVMFrame(
-            workletContext.evmState,
+            evmState,
             rawPatch.pixels,
             rawPatch.width,
             rawPatch.height,
@@ -181,8 +199,15 @@ export function usePulsePipeline() {
       }
     }
 
+    // Temporary while chasing the ROI coordinate-space bug: expose the raw values needed
+    // to verify/fix the rotation transform in ROIManager.ts's toBufferSpace() without
+    // needing Metro/logcat access — shows up in the "Buffering" status text on-screen.
+    const debugInfo = face
+      ? `[orient=${frame.orientation} fw=${frame.width} fh=${frame.height} bbox=(${Math.round(face.bbox.x)},${Math.round(face.bbox.y)},${Math.round(face.bbox.width)},${Math.round(face.bbox.height)})]`
+      : null;
+
     // 5. Send to PipelineController on JS Thread
-    runOnJS_handleFrameProcessed(rgbSample, face, patches, avgCoveredRatio, workletContext.detectorState.lastError);
+    runOnJS_handleFrameProcessed(rgbSample, face, patches, avgCoveredRatio, workletContext.detectorState.lastError, debugInfo);
   }, [detectFaces, runOnJS_handleFrameProcessed]);
 
   const start = useCallback(() => {

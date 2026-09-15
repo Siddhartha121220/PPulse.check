@@ -203,6 +203,7 @@ export class PipelineController {
    * @param roiPatches - Extracted ROI patches
    * @param coveredRatio - Ratio of skin pixels in ROI (0–1)
    * @param detectionError - Set if the native detectFaces() call itself threw on this frame
+   * @param debugInfo - Raw frame/bbox diagnostics, temporary while chasing the ROI coordinate-space bug
    */
   onFrameProcessed(
     rgbSample: RGBSample | null,
@@ -210,6 +211,7 @@ export class PipelineController {
     roiPatches: ROIPatch[],
     coveredRatio: number,
     detectionError: string | null = null,
+    debugInfo: string | null = null,
   ): void {
     if (!this.state.isRunning) return;
 
@@ -291,7 +293,7 @@ export class PipelineController {
         }
       } else {
         // Extractor still filling its own sliding window (first ~32 frames)
-        this.state.statusText = `Buffering: BVP NaN (R:${rgbSample.r.toFixed(3)} G:${rgbSample.g.toFixed(3)} B:${rgbSample.b.toFixed(3)})`;
+        this.state.statusText = `Buffering: BVP NaN (R:${rgbSample.r.toFixed(3)} G:${rgbSample.g.toFixed(3)} B:${rgbSample.b.toFixed(3)})${debugInfo ? ' ' + debugInfo : ''}`;
       }
     } else if (this.state.mode === 'visualization') {
       this.state.statusText = 'Displaying magnified video';

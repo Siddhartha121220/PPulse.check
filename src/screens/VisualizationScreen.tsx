@@ -6,6 +6,7 @@ import { usePulsePipeline } from '../hooks/usePulsePipeline';
 import { X, Activity } from 'lucide-react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { FaceOverlay } from '../components/overlays/FaceOverlay';
+import { AlignmentGuide } from '../components/overlays/AlignmentGuide';
 
 /**
  * Visualization Mode Screen
@@ -70,6 +71,8 @@ export const VisualizationScreen = () => {
                     fps={30}
                     frameProcessor={isRecording ? frameProcessor : undefined}
                 />
+
+                <AlignmentGuide active={!!state?.faceDetected} />
 
                 {isRecording && state && (
                     <FaceOverlay

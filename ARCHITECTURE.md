@@ -156,10 +156,124 @@ or delete it; don't assume it's on the hot path.
     `patchHeight` can never go negative (a resulting 0-size patch is valid — `segmentSkin` also now
     guards `totalPixels === 0` to avoid a `0/0` NaN coverage ratio poisoning confidence).
 
-Both #11 and #12 were latent from the start but only surfaced once face detection began actually
+13. **`state.filters[filterIndex]` undefined in `processEVMFrame`** (`EulerianMagnification.ts`,
+    Enhanced/Visualization modes): `reallocateBuffers` and `buildGaussianPyramid` compute the
+    filter-pool size and pyramid-level sizes independently (by the same ceil-halving formula, so
+    they should always agree), but crashed on-device with `Cannot read property 'b0' of undefined`
+    — meaning they went out of sync in practice, likely from `EVMState` being shared and
+    reallocated across 3 differently-sized ROI patches (forehead/leftCheek/rightCheek) every frame.
+    The exact trigger wasn't pinned down through static reading alone (no live device access at
+    the time), so rather than guess, `processEVMFrame` now self-heals: after building the pyramid,
+    it counts the pixel-channels the pyramid actually needs and reallocates if `state.filters`/
+    `state.filteredPyramid` don't match — using the pyramid itself as ground truth instead of
+    trusting two independently-derived size formulas to stay in agreement. A per-sample fallback
+    (pass the sample through unfiltered if a filter is still somehow missing) backs that up so a
+    mismatch can never crash a live session again, even in a case this reasoning missed.
+14. **Follow-up to #13**: the length-based self-heal above wasn't enough — it crashed again with
+    `Cannot set property '0' of undefined` on `state.filteredPyramid[l]` directly. The bug: outer
+    array LENGTH checks (`filteredPyramid.length !== pyramid.length`) can never detect this kind of
+    drift, because both are always exactly `pyramidLevels` (a fixed config value) regardless of
+    whether the reallocation actually matches the current patch's width/height — only checking
+    each level's actual `Float32Array.length` against the real pyramid catches a genuine mismatch.
+    Replaced the check with a per-level size comparison, guarded every remaining
+    `state.filteredPyramid[l]`/`amplifiedBase` access so a miss degrades (skips that level /
+    treats missing data as zero) instead of throwing, and added a `console.log` that dumps the
+    exact pyramid vs. filteredPyramid sizes and width/height/lastWidth/lastHeight whenever a
+    reallocation is triggered — if this still misbehaves, that log line has the numbers needed to
+    find the actual trigger instead of guessing again.
+
+#11–#14 were all latent from the start but only surfaced once face detection began actually
 succeeding (fix #10) — the code paths they're in simply hadn't run before. Expect more of this
 shape if further issues show up: something that only manifests once an *earlier* stage starts
 working isn't a new regression, it's dead code becoming live for the first time.
+
+15. **ROI pixels reading zero / ROI box misplaced — a wrong fix for a real symptom.** The crash in
+    #12 was real (unclamped sub-boxes → negative array length), but the *follow-on* theory — that
+    ML Kit returns `face.bounds` in a rotated coordinate space needing correction before indexing
+    into the raw buffer — turned out to be wrong for this app. It was a reasonable hypothesis from
+    reading the face-detector plugin's own Kotlin comment ("frame is always -90deg rotated"), but
+    that comment describes an *internal* assumption of that plugin's own (unused-by-us) `autoMode`
+    scaling path, not the shape of the `bounds` it actually returns to JS.
+
+    A `toBufferSpace()` transform was added in `extractROIs` to swap width/height based on
+    `frame.orientation`, and it made things *worse* — visually confirmed on-device: a correctly
+    shaped, roughly-positioned cheek/forehead box got stretched into a tall, narrow rectangle in
+    the wrong place. A debug overlay added to the status text (`[orient=... fw=... fh=...
+    bbox=(x,y,w,h)]`, temporary — `usePulsePipeline.ts` → `PipelineController.onFrameProcessed`'s
+    `debugInfo` param) gave the actual numbers: `orient=landscape-left fw=640 fh=480
+    bbox=(29,216,353,354)`. `bbox.x`/`bbox.x+width` (29→382) fit comfortably within `fw=640`, and
+    `bbox.y`/`bbox.y+height` (216→570) only modestly exceeds `fh=480` (~90px, consistent with a
+    close-up face's chin extending toward/past the frame edge, not a coordinate-space mismatch).
+    **`face.bbox` was already in the same coordinate space as `frame.width`/`frame.height` all
+    along** — no transform was ever needed. `toBufferSpace()` has been removed from `ROIManager.ts`
+    entirely; `extractROIs` uses `face.bbox` directly again, as it originally did.
+
+    Lesson for next time: when a coordinate-space bug is suspected, get the actual numbers (via a
+    visible debug overlay, as done here) *before* writing a correction — reasoning from a library's
+    internal comments about a code path this app doesn't even use produced a confident, wrong
+    answer that took a full round-trip to falsify. The debug overlay is still in place in
+    `PipelineController.ts`/`usePulsePipeline.ts`; remove it once ROI extraction is confirmed
+    working end-to-end (RGB reading non-zero, a BPM eventually appearing).
+
+16. **EVM reallocating on almost every frame (severe lag) once Enhanced/Visualization mode
+    actually started running**: `usePulsePipeline.ts` shared one `EVMState` across all three ROI
+    patches (forehead/leftCheek/rightCheek), calling `processEVMFrame` for each in sequence every
+    frame. Since forehead and cheek patches have different pixel dimensions, `processEVMFrame`'s
+    self-heal (#13/#14) correctly detected a size mismatch on nearly every call and fully
+    reallocated the filter bank (thousands of object allocations) 2-3 times per frame, every
+    frame — plus the reallocation's diagnostic `console.log` firing that often, itself a known RN
+    performance killer at high frequency. Fixed by giving each region its own persistent
+    `EVMState` (`evmStateForehead`/`evmStateLeftCheek`/`evmStateRightCheek` in `workletContext`),
+    so each one is sized once and reallocates only when that specific region's own dimensions
+    change (rare, since `ROIManager` quantizes to a 4px grid) instead of every time a
+    differently-sized sibling patch was processed in between.
+
+## Performance — lag that isn't a bug, it's the architecture's per-frame cost
+
+Lag persisted even after #16, in modes that don't touch EVM at all — this isn't a one-line bug,
+it's the cumulative cost of everything this pipeline does per frame, all in interpreted JS
+(Hermes) on the frame-processor thread, every single frame at up to 30fps:
+
+1. `frame.toArrayBuffer()` copies the *entire* camera buffer GPU→CPU — at the original 720p
+   request, ~920k pixels, even though only 3 small ROI regions are ever read from it.
+2. Every pixel in those ROI regions gets walked for skin classification (`isSkinPixel` — an HSV
+   *and* a YCrCb conversion, several `Math` calls each).
+3. In Enhanced/Visualization mode, every pixel additionally gets walked again for EVM's per-pixel
+   biquad filtering across a 4-level pyramid.
+4. ML Kit face detection itself runs synchronously on this same thread (throttled to every 200ms,
+   but when it does run, the frame processor blocks waiting for it — see `Tasks.await(task)` in
+   `VisionCameraFaceDetectorPlugin.kt`).
+
+None of this is a "bug" in the sense of wrong logic — it's just a lot of real work, done in a
+scripting runtime, on a mobile CPU, every frame. Fixes applied so far, roughly ordered by
+leverage:
+
+- **Camera resolution dropped 720p → VGA (640x480)** (`CameraManager.ts`) — the single biggest
+  lever available without moving work into native code. rPPG only needs a spatial *average* over
+  face regions, not fine detail — VGA is a long-established sufficient resolution in published
+  webcam-based rPPG research, and this alone cuts the per-frame pixel count (and thus the buffer
+  copy and every per-pixel loop downstream) by roughly 3x.
+- **Skin classification subsampled** (`SkinSegmenter.ts`) — `coveredRatio` only feeds a
+  15%-weighted confidence sub-score, so it doesn't need every pixel classified; sampling every
+  4th pixel gives a statistically equivalent ratio for a quarter of the HSV/YCrCb math.
+
+**Further levers, not yet applied, roughly in order of effort**:
+- **Make face detection asynchronous** via VisionCamera's `runAsync()`, so the ML Kit call runs
+  on its own cadence instead of blocking the main per-frame ROI-extraction work every time it
+  fires. This is a real structural change (the frame processor would need to read the *last
+  completed* detection result rather than waiting on a fresh one each throttle interval) but
+  doesn't touch any of the DSP/algorithm code.
+- **Move pixel processing into a native Frame Processor Plugin** (Kotlin/Swift), so the RGBA
+  conversion, skin classification, and (if kept) EVM filtering run as compiled native code
+  instead of interpreted JS. This is the approach production rPPG apps use for exactly this
+  reason — it's a genuinely bigger undertaking (a native module, not a JS change) — but it's the
+  ceiling-raising fix if VGA + subsampling + async detection still isn't enough.
+
+None of this requires discarding the app and starting over. A rewrite would face the identical
+constraints (camera frames + face detection + per-pixel color math, ~30 times a second, on the
+same class of hardware) — the fix is in *how* the work is distributed (resolution, sampling,
+sync vs. async, JS vs. native), which applies the same whether it's done to this codebase or a
+fresh one.
 
 ### Time to first BPM reading
 

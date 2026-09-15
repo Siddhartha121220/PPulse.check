@@ -157,43 +157,73 @@ export function processEVMFrame(state: EVMState, roiPixels: Float32Array, width:
 
   const pyramid = buildGaussianPyramid(roiPixels, width, height, state.config.pyramidLevels);
 
+  // Self-heal: state.filteredPyramid[l] and state.filters must be sized to exactly match
+  // this pyramid, but reallocateBuffers and buildGaussianPyramid compute those sizes
+  // independently, and this proved to drift apart in practice (crashed on-device) — likely
+  // from one shared EVMState being reallocated across 3 differently-sized ROI patches
+  // (forehead/leftCheek/rightCheek) every frame. Comparing array LENGTHS of the outer
+  // pyramid arrays doesn't catch this: both are always exactly pyramidLevels regardless of
+  // whether the reallocation actually matches the current patch. Validate per-level size
+  // against the pyramid we actually have (ground truth) instead.
+  let needsRealloc = state.filteredPyramid.length !== pyramid.length;
+  if (!needsRealloc) {
+    for (let l = 0; l < pyramid.length; l++) {
+      if (state.filteredPyramid[l]?.length !== pyramid[l].length) {
+        needsRealloc = true;
+        break;
+      }
+    }
+  }
+  if (needsRealloc) {
+    console.log(`[EVM] Reallocating (size drift): pyramid=[${pyramid.map(p => p.length).join(',')}] filteredPyramid=[${state.filteredPyramid.map(p => p?.length).join(',')}] w=${width} h=${height} lastW=${state.lastWidth} lastH=${state.lastHeight}`);
+    reallocateBuffers(state, width, height);
+  }
+
   let filterIndex = 0;
 
-  for (let l = 0; l < state.config.pyramidLevels; l++) {
+  for (let l = 0; l < pyramid.length; l++) {
     const levelData = pyramid[l];
     const filteredData = state.filteredPyramid[l];
+    // Should be unreachable after the self-heal above, but a missing/undersized level
+    // must never crash a live camera session.
+    if (!filteredData) continue;
 
     let alpha = state.config.amplificationFactor;
-    if (l < state.config.pyramidLevels - 1) {
+    if (l < pyramid.length - 1) {
         alpha = 0;
     }
 
-    for (let i = 0; i < levelData.length; i++) {
-      const filtered = processBiquadFilter(state.filters[filterIndex++], levelData[i]);
-      filteredData[i] = filtered * alpha;
+    for (let i = 0; i < levelData.length && i < filteredData.length; i++) {
+      const filterState = state.filters[filterIndex++];
+      filteredData[i] = filterState ? processBiquadFilter(filterState, levelData[i]) * alpha : 0;
     }
   }
 
   const reconstructed = new Float32Array(roiPixels.length);
   reconstructed.set(roiPixels);
 
-  const topLevel = state.config.pyramidLevels - 1;
+  const topLevel = pyramid.length - 1;
   const amplifiedBase = state.filteredPyramid[topLevel];
 
-  const scale = 1 << topLevel;
-  const wTop = Math.ceil(width / scale);
+  if (amplifiedBase && amplifiedBase.length > 0) {
+    const scale = 1 << topLevel;
+    const wTop = Math.ceil(width / scale);
+    const hTop = Math.ceil(height / scale);
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const topY = Math.floor(y / scale);
-      const topX = Math.floor(x / scale);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const topY = Math.min(hTop - 1, Math.floor(y / scale));
+        const topX = Math.min(wTop - 1, Math.floor(x / scale));
 
-      const srcIdx = (topY * wTop + topX) * 3;
-      const dstIdx = (y * width + x) * 3;
+        const srcIdx = (topY * wTop + topX) * 3;
+        const dstIdx = (y * width + x) * 3;
 
-      reconstructed[dstIdx] += amplifiedBase[srcIdx];
-      reconstructed[dstIdx + 1] += amplifiedBase[srcIdx + 1];
-      reconstructed[dstIdx + 2] += amplifiedBase[srcIdx + 2];
+        if (srcIdx + 2 < amplifiedBase.length) {
+          reconstructed[dstIdx] += amplifiedBase[srcIdx];
+          reconstructed[dstIdx + 1] += amplifiedBase[srcIdx + 1];
+          reconstructed[dstIdx + 2] += amplifiedBase[srcIdx + 2];
+        }
+      }
     }
   }
 

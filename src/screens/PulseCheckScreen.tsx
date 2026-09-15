@@ -8,6 +8,7 @@ import { Activity, X } from 'lucide-react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Button } from '../components/ui/Button';
 import { FaceOverlay } from '../components/overlays/FaceOverlay';
+import { AlignmentGuide } from '../components/overlays/AlignmentGuide';
 import { MetricsOverlay } from '../components/overlays/MetricsOverlay';
 import { SignalChart } from '../components/ui/SignalChart';
 
@@ -93,6 +94,8 @@ export const PulseCheckScreen = () => {
                     fps={30}
                     frameProcessor={isRecording ? frameProcessor : undefined}
                 />
+
+                <AlignmentGuide active={!!state?.faceDetected} />
 
                 {isRecording && state && (
                     <>

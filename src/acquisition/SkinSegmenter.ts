@@ -63,11 +63,19 @@ export function segmentSkin(patch: ROIPatch): { patch: ROIPatch; coveredRatio: n
     return { patch, coveredRatio: 0 };
   }
 
+  // coveredRatio only feeds a 15%-weighted confidence sub-score (see ConfidenceEstimator) — it
+  // doesn't need every pixel classified. HSV+YCrCb conversion per pixel was one of the more
+  // expensive per-frame costs across 3 ROI patches at 30fps; sampling every 4th pixel gives a
+  // statistically equivalent ratio for 1/4 the math, and leaves unsampled pixels' real color
+  // untouched (closer to the "average over all ROI pixels" intent noted below anyway).
+  const STRIDE = 4 * 3; // 4 pixels, 3 channels each
+  let sampledPixels = 0;
   let skinPixelCount = 0;
-  for (let i = 0; i < patch.pixels.length; i += 3) {
+  for (let i = 0; i < patch.pixels.length; i += STRIDE) {
     const r = patch.pixels[i];
     const g = patch.pixels[i + 1];
     const b = patch.pixels[i + 2];
+    sampledPixels++;
 
     if (isSkinPixel(r, g, b)) {
       skinPixelCount++;
@@ -80,7 +88,7 @@ export function segmentSkin(patch: ROIPatch): { patch: ROIPatch; coveredRatio: n
 
   return {
     patch,
-    coveredRatio: skinPixelCount / totalPixels,
+    coveredRatio: sampledPixels > 0 ? skinPixelCount / sampledPixels : 0,
   };
 }
 

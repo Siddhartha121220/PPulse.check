@@ -97,6 +97,11 @@ export function extractROIs(frame: Frame, face: SmoothedFace): ROIPatch[] {
 
   const patches: ROIPatch[] = [];
 
+  // face.bbox is already in the same coordinate space as frame.width/frame.height — confirmed
+  // on-device (bbox values fit directly within the frame dimensions with no swap needed). An
+  // earlier fix here assumed ML Kit returns rotated-space coordinates and applied a width/height
+  // swap "correction" that was actually wrong: it took a correctly-shaped cheek/forehead box and
+  // stretched it into a tall, narrow rectangle in the wrong place. No transform needed.
   const foreheadBox = getForeheadBbox(face.bbox);
   const leftCheekBox = getLeftCheekBbox(face.bbox);
   const rightCheekBox = getRightCheekBbox(face.bbox);
