@@ -32,13 +32,17 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ options, selectedId,
             key={option.id}
             disabled={option.disabled}
             onPress={() => onSelect(option.id)}
-            className={`flex-row items-center justify-between rounded-2xl px-4 py-4 border-2 ${
-              isSelected ? 'border-accent bg-surfaceDark' : 'border-transparent bg-surfaceDark/40'
-            } ${option.disabled ? 'opacity-40' : ''}`}
+            className={`flex-row items-center justify-between rounded-2xl px-4 py-4 border-2 bg-surfaceDark ${
+              isSelected ? 'border-accent' : 'border-transparent'
+            }`}
           >
             <View className="flex-1 pr-3">
-              <Text className="text-textOnDark font-bold text-base">{option.title}</Text>
-              <Text className="text-textOnDark/60 text-xs mt-0.5">
+              <Text
+                className={`font-bold text-base ${option.disabled ? 'text-textOnDark/30' : 'text-textOnDark'}`}
+              >
+                {option.title}
+              </Text>
+              <Text className={`text-xs mt-0.5 ${option.disabled ? 'text-textOnDark/25' : 'text-textOnDark/60'}`}>
                 {option.disabled ? `${option.description} · Coming soon` : option.description}
               </Text>
             </View>
