@@ -17,8 +17,22 @@
   (282x282) inside a 640x480 frame (VGA, matching §5.4 by default), guide turned lavender
   correctly. FPS reads 10, but that's from the debug overlay's per-frame `runOnJS` round-trip, not
   the plugin itself — deliberately not optimizing this yet (§7.6 polish phase).
-- **Phase 3 (ROI + RGB extraction) — NOT STARTED.** Next: extend the same native plugin to also
-  return per-region (forehead/cheek) averaged RGB, per §5.1/§7.3.
+- **Phase 3 (ROI + RGB extraction) — DONE, confirmed on-device.** Extended the same native plugin
+  to average YUV->RGB over forehead/left-cheek/right-cheek ROIs, sampled directly from the raw
+  Y/U/V planes (not a decoded bitmap). This surfaced a real §5.2 coordinate-space bug: ML Kit's
+  `Face.boundingBox` is in the *rotated/upright* space (width/height swapped vs. the raw buffer
+  when rotation is 90/270), confirmed from Phase 2's own screenshot numbers (a bbox that didn't
+  fit the raw buffer's reported height). Fixed by deriving (not guessing) the inverse-rotation
+  mapping from upright ROI rects back to raw buffer coordinates before sampling pixels — see the
+  doc comment in `FaceDetectionFrameProcessorPlugin.kt`. `frameWidth`/`frameHeight` now correctly
+  report the upright (bbox) space. On-device: all three regions show plausible skin-tone RGB at
+  100% coverage, values changed as expected moving closer/farther from the camera. Known
+  simplification: front-camera mirroring isn't corrected, so "left"/"right" cheek labels may be
+  swapped from the user's anatomical left/right — doesn't affect signal extraction, only labeling.
+- **Phase 4 (signal pipeline) — NOT STARTED.** Next: port `POSExtractor`, `SignalBuffer`,
+  `FFTAnalyzer`, `HREstimator`, `ConfidenceEstimator` from v1's git history largely as-is (they
+  were audited correct — the rebuild never disputed the DSP, only the camera/native layer around
+  it), per §7.4.
 - v1 is erased from the working tree as of commit `ac06161` but fully intact before that commit
   if anything needs to be referenced (the POS/FFT math especially — it was correct and is meant
   to be ported forward largely as-is in Phase 4).

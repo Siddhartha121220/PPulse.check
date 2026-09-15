@@ -9,8 +9,11 @@ import {
   useFrameProcessor,
 } from 'react-native-vision-camera';
 import { useRunOnJS } from 'react-native-worklets-core';
-import { detectFace, type FaceDetectionResult } from '../acquisition/faceDetectionPlugin';
+import { detectFace, type FaceDetectionResult, type RgbAverage } from '../acquisition/faceDetectionPlugin';
 import { colors } from '../theme/colors';
+
+const fmtRgb = (avg: RgbAverage) =>
+  `${avg.r.toFixed(0)},${avg.g.toFixed(0)},${avg.b.toFixed(0)} (cov ${(avg.coveredRatio * 100).toFixed(0)}%)`;
 
 /**
  * Phase 2 (REQUIREMENTS.md §7.2) checkpoint: native face-detection plugin wired up, raw
@@ -104,6 +107,19 @@ export const PulseCheckScreen = () => {
             <Text className="text-textOnDark/80 text-xs">
               BBox: {debug?.boundingBox ? JSON.stringify(debug.boundingBox) : '-'}
             </Text>
+            {debug?.regions && (
+              <>
+                <Text className="text-textOnDark/80 text-xs">
+                  Forehead RGB: {fmtRgb(debug.regions.forehead)}
+                </Text>
+                <Text className="text-textOnDark/80 text-xs">
+                  L cheek RGB: {fmtRgb(debug.regions.leftCheek)}
+                </Text>
+                <Text className="text-textOnDark/80 text-xs">
+                  R cheek RGB: {fmtRgb(debug.regions.rightCheek)}
+                </Text>
+              </>
+            )}
             {debug?.error && <Text className="text-danger text-xs">Error: {debug.error}</Text>}
           </View>
         </View>

@@ -8,11 +8,20 @@ import { VisionCameraProxy } from 'react-native-vision-camera';
  */
 const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectFace', {});
 
+export interface RgbAverage {
+  r: number;
+  g: number;
+  b: number;
+  coveredRatio: number;
+}
+
 export interface FaceDetectionResult {
   faceDetected: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
   frameWidth?: number;
   frameHeight?: number;
+  rotationDegrees?: number;
+  regions?: { forehead: RgbAverage; leftCheek: RgbAverage; rightCheek: RgbAverage };
   error?: string;
 }
 
